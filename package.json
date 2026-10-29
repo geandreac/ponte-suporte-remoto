@@ -1,0 +1,19 @@
+{
+  "name": "ponte-suporte-remoto",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Suporte remoto assistido via navegador: convite com consentimento, WebRTC ponta a ponta e permissões granulares.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:e2e": "node e2e/run.mjs",
+    "check": "node scripts/check-syntax.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
