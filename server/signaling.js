@@ -225,6 +225,9 @@ export function attachSignaling({ server, store, ice, audit, config, now = Date.
       closeRoom(sessionId, reason);
     },
 
+    // Sinal periódico do cliente: só mantém a conexão (e servidores gratuitos) ativos.
+    keepalive() {},
+
     'session:resume'(conn, msg) {
       if (conn.role) return sendError(conn, 'already_in_session');
       if (!limits.resume.take(conn.ip)) return sendError(conn, 'rate_limited');

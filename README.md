@@ -37,9 +37,23 @@ Os instaladores são gerados pelo GitHub Actions (workflow **Executáveis**) sem
   enquanto o convite ou a sessão existir. Na 1ª vez, o **Firewall do Windows** pergunta se o
   Ponte pode usar a rede: permita em **Redes privadas**. Se a busca não achar, informe o endereço
   que aparece na tela do convite ("Na rede local: 192.168.…").
-- **Servidor da organização**: para redes diferentes (casa ↔ escritório, 4G), publique o servidor
-  com HTTPS ([docs/IMPLANTACAO.md](docs/IMPLANTACAO.md), inclui Dockerfile) e informe o endereço
-  em **Ajustes** nos dois computadores.
+- **Servidor de conexão na internet**: para redes diferentes (casa ↔ trabalho, 4G), os dois
+  computadores precisam de um "ponto de encontro" com HTTPS. Dá para criar um **gratuito**:
+
+  [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/geandreac/ponte-suporte-remoto)
+
+  1. Clique no botão acima, entre no Render (dá para usar a conta do GitHub) e confirme a criação
+     do serviço **ponte-servidor** no plano gratuito.
+  2. Quando terminar, copie o endereço `https://….onrender.com` exibido no painel.
+  3. Nos **dois** computadores: **Ajustes › Servidor da organização**, cole o endereço e clique em
+     **Salvar e reiniciar**.
+
+  No plano gratuito o servidor "dorme" após 15 minutos sem uso e leva até ~1 minuto para acordar:
+  o app mostra **"Acordando o servidor…"** e espera. Enquanto houver conexão, o app envia um sinal
+  leve a cada 4 minutos para ele não dormir. Detalhes e alternativas em
+  [docs/IMPLANTACAO.md](docs/IMPLANTACAO.md). Ainda é preciso alguém no outro computador para
+  aceitar a conexão; o acesso sem supervisão está planejado em
+  [docs/ACESSO-SEM-SUPERVISAO.md](docs/ACESSO-SEM-SUPERVISAO.md).
 
 ### Controle remoto
 
@@ -77,7 +91,8 @@ pelo botão **Reiniciar e atualizar**, nunca durante uma sessão). No macOS, no 
 | Arquivos com aceite dos dois lados, lista de tipos, 25 MB, verificação de conteúdo e SHA-256 | ✅ |
 | Gravação local opcional com consentimento e indicador contínuo | ✅ |
 | Histórico local e log de auditoria sem conteúdo sensível; limite de tentativas | ✅ |
-| **Acesso não assistido** | ⛔ Não implementado, de propósito ([proposta](docs/ARQUITETURA.md#acesso-não-assistido)) |
+| Servidor de conexão gratuito (Render) com espera pelo "acordar" e sinal periódico | ✅ |
+| **Acessar computador sem supervisão** | 📋 Planejado com requisitos de segurança ([especificação](docs/ACESSO-SEM-SUPERVISAO.md)); ainda não implementado |
 | Assinatura digital dos instaladores | ⛔ Requer certificados pagos (Apple Developer, Authenticode) |
 
 ## Desenvolvimento

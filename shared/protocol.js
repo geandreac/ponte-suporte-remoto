@@ -108,6 +108,7 @@ export function validateClientMessage(msg) {
     }
 
     case 'session:end':
+    case 'keepalive':
       return ok({ type });
 
     case 'session:resume': {

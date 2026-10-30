@@ -138,17 +138,10 @@ assinatura), Windows portátil e .deb só avisam e abrem a página da Release. P
 Ajustes. Limitação: sem assinatura de código, a confiança se apoia na Release do GitHub (HTTPS +
 SHA-512); quem controlar a conta do repositório consegue publicar uma atualização.
 
-## Acesso não assistido
+## Acesso sem supervisão
 
-**Não implementado**, de propósito. Exigiria o app de computador rodando em segundo plano, com
-captura sem confirmação a cada sessão. Proposta mínima segura:
-
-1. Desativado por padrão; ativado só pelo dono do dispositivo, localmente, com reautenticação.
-2. Dispositivo registra um par de chaves (privada no cofre do SO: DPAPI/Keychain/libsecret).
-3. Técnicos autenticados com conta + 2FA/passkey; o dono autoriza técnicos específicos.
-4. Nenhuma senha em texto puro: se houver senha de acesso, guardar com Argon2id e limitar tentativas.
-5. Notificação local ao iniciar, log de cada acesso, lista de autorizados com revogação imediata
-   e prazo de validade para cada autorização.
+Planejado, ainda não implementado. Requisitos, protocolo de autenticação (sem enviar a senha) e
+limitações de cada sistema em [ACESSO-SEM-SUPERVISAO.md](ACESSO-SEM-SUPERVISAO.md).
 
 ## Próximos passos recomendados
 

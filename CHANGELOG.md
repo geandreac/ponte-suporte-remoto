@@ -1,5 +1,13 @@
 # Histórico de versões
 
+## 0.2.4
+- Servidor de conexão gratuito no Render (`render.yaml` + botão "Deploy to Render") para conectar
+  computadores em redes diferentes.
+- Se o servidor estiver em repouso, o app mostra "Acordando o servidor…" e espera até ~1 minuto
+  em vez de falhar; reconexão mais longa para reinícios do servidor.
+- Sinal periódico (a cada 4 min) mantém o servidor ativo enquanto houver conexão.
+- Especificação do futuro "Acessar computador sem supervisão" (docs/ACESSO-SEM-SUPERVISAO.md).
+
 ## 0.2.3
 - Aviso de controle remoto menor ("Nome controlando · Parar"), no canto inferior direito da tela
   (fora de barras de título e abas) e arrastável. Pode ser minimizado: vira um botão na barra de

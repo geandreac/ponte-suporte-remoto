@@ -1,6 +1,6 @@
 {
   "name": "ponte-suporte-remoto",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "Suporte remoto assistido: convite com consentimento, WebRTC ponta a ponta e permissões granulares.",
   "type": "module",

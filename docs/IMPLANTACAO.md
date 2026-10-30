@@ -23,6 +23,22 @@ O app de computador conecta máquinas no mesmo Wi-Fi/roteador sem nenhum servido
   só durante convites/sessões: **UDP 47800** (descoberta) e uma porta TCP aleatória (TLS).
 - O roteador não pode isolar os clientes do Wi-Fi (comum em redes de visitantes).
 
+## Servidor gratuito no Render (recomendado para começar)
+
+O arquivo `render.yaml` na raiz descreve o serviço (Docker, plano gratuito, verificação em
+`/healthz`, `TRUST_PROXY=1`). Use o botão **Deploy to Render** do README ou, no painel do Render,
+**New › Blueprint** apontando para este repositório. O Render fornece HTTPS e define `PORT`.
+
+Comportamento do plano gratuito (confirme os termos atuais em render.com/free):
+- Dorme após 15 minutos sem tráfego HTTP **ou mensagens WebSocket**; acordar leva ~1 minuto.
+  O app espera até 75 s mostrando "Acordando o servidor…".
+- Enquanto conectado, o app envia `keepalive` a cada 4 minutos, o que mantém o serviço ativo.
+- O serviço pode reiniciar: como o estado das sessões fica em memória, sessões em andamento caem
+  e o app informa; basta conectar de novo.
+- Os logs do Render recebem o log de auditoria (eventos e IPs; nunca códigos, tokens ou conteúdo).
+
+Se a rede do trabalho bloquear a conexão direta entre os computadores, configure TURN (abaixo).
+
 ## Docker
 
 ```bash

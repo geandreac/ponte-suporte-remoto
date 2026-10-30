@@ -1,0 +1,14 @@
+# Implantação gratuita do servidor de conexão do Ponte no Render (Blueprint).
+# O Render cuida do HTTPS e define a variável PORT. O servidor só faz a sinalização:
+# tela, teclado/mouse e arquivos vão direto entre os computadores, cifrados.
+services:
+  - type: web
+    name: ponte-servidor
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: TRUST_PROXY
+        value: "1"

@@ -81,6 +81,7 @@ const SIGNAL_TEXT = {
   online: 'Servidor conectado',
   connecting: 'Conectando ao servidor…',
   reconnecting: 'Reconectando ao servidor…',
+  waking: 'Acordando o servidor (pode levar até 1 minuto)…',
   offline: 'Servidor desconectado',
 };
 // Cada sessão tem sua conexão de sinalização (na rede local, quem presta suporte se conecta
@@ -91,6 +92,12 @@ function createSignaling(url) {
     if (controller?.signaling !== client) return;
     $('signal-status').dataset.status = e.detail;
     $('signal-status').querySelector('.status-text').textContent = SIGNAL_TEXT[e.detail];
+    // Servidor gratuito em repouso: o botão em andamento explica a espera.
+    if (e.detail === 'waking') {
+      for (const id of ['btn-create-invite', 'btn-join']) {
+        if ($(id).getAttribute('aria-busy') === 'true') setBusy($(id), true, 'Acordando o servidor…');
+      }
+    }
   });
   return client;
 }

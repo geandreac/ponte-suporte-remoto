@@ -254,3 +254,10 @@ test('limite padrão por IP barra tentativas de adivinhar códigos em sessões d
   ws.close();
   await strict.close();
 });
+
+test('keepalive é aceito sem erro e sem efeito colateral', async () => {
+  const c = await client();
+  c.send('keepalive');
+  await c.none('error', 300);
+  await c.close();
+});
