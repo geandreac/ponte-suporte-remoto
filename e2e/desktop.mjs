@@ -66,8 +66,8 @@ try {
     assert.equal(probe.open, true);
     assert.equal(probe.bridge, [
       'checkForUpdates', 'chooseSource', 'downloadUpdate', 'getSettings', 'injectInput', 'installUpdate',
-      'lanDiscover', 'lanHostStart', 'lanHostStop', 'lanInviteUsed', 'onCaptureTarget', 'onControlRevoked',
-      'onNavigate', 'onOverlay', 'onSourceRequest', 'onUpdateStatus', 'openDocs', 'openReleases', 'platform',
+      'lanDiscover', 'lanHostStart', 'lanHostStop', 'lanInviteUsed', 'minimizeOverlay', 'onCaptureTarget',
+      'onControlRevoked', 'onNavigate', 'onOverlay', 'onSourceRequest', 'onUpdateStatus', 'openDocs', 'openReleases', 'platform',
       'revokeFromOverlay', 'saveSettings', 'setAutoUpdate', 'setControlActive', 'signalingUrl',
     ].join(','));
     const csp = await host.evaluate(async () => (await fetch('index.html')).headers.get('content-security-policy'));
@@ -201,7 +201,22 @@ try {
 
   await step('controle remoto move o mouse real do sistema e mostra o aviso sempre visível', async () => {
     await host.waitForFunction(() => document.querySelector('#banner-control').textContent.includes('ATIVO'), null, { timeout: 10000 });
-    assert.equal(await hook('overlayVisible'), true, 'faixa vermelha de controle visível');
+    assert.equal(await hook('overlayVisible'), true, 'aviso de controle visível');
+    // Aviso compacto no canto inferior direito, fora das barras de título.
+    const ob = await hook('overlayBounds');
+    const wa = await app.evaluate(({ screen }) => screen.getPrimaryDisplay().workArea);
+    assert.ok(ob.width <= 340 && ob.height <= 48, `aviso compacto: ${JSON.stringify(ob)}`);
+    // Minimizar o aviso cria um botão na barra de tarefas (para ciência do acesso).
+    assert.equal(await hook('overlayInTaskbar'), false);
+    await hook('minimizeOverlay');
+    let inTaskbar = false;
+    for (let i = 0; i < 20 && !inTaskbar; i++) {
+      await tech.waitForTimeout(100);
+      inTaskbar = await hook('overlayInTaskbar');
+    }
+    assert.equal(inTaskbar, true, 'botão na barra de tarefas enquanto minimizado');
+    assert.ok(ob.x + ob.width <= wa.x + wa.width && ob.x > wa.x + wa.width / 2, 'à direita');
+    assert.ok(ob.y + ob.height <= wa.y + wa.height && ob.y > wa.y + wa.height / 2, 'embaixo');
     assert.equal(await hook('shortcutRegistered'), true, 'atalho para retomar registrado');
     // Com as duas janelas no mesmo computador, o mouse real movido pelo controle não pode passar
     // por cima da janela do técnico (ela geraria novos eventos, em ciclo). Afasta a janela para a direita.
@@ -252,6 +267,7 @@ try {
     assert.equal(await host.isChecked('#live-control'), false);
     await tech.waitForSelector('#btn-control[disabled]');
     assert.equal(await hook('overlayVisible'), false);
+    assert.equal(await hook('overlayInTaskbar'), false, 'botão da barra some ao parar o controle');
     assert.equal(await hook('shortcutRegistered'), false);
     // Mensagens de controle chegando depois da revogação não movem nada.
     const before = await mouse();

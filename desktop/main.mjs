@@ -11,8 +11,8 @@
 // - Atualização automática (updater.mjs).
 
 import {
-  app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, MessageChannelMain, nativeTheme,
-  protocol, screen,
+  app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, MessageChannelMain, nativeImage,
+  nativeTheme, protocol, screen,
   session, shell, systemPreferences, utilityProcess, webContents,
 } from 'electron';
 import electronUpdater from 'electron-updater';
@@ -376,23 +376,72 @@ function setCaptureTarget(wc, bounds) {
   wc.send('ponte:capture-target', { controllable: Boolean(bounds) && inputStatus.available });
 }
 
+// Aviso compacto, sempre por cima, no canto inferior direito da tela controlada (fora das barras
+// de título e abas). A pessoa pode arrastá-lo; a posição escolhida vale até o app fechar.
+const OVERLAY_SIZE = { width: 330, height: 40 };
+let overlayMoved = false;
+let overlayInTaskbar = false;
+
+// Selo vermelho desenhado na hora (sem arquivo de imagem) para o botão da barra de tarefas.
+function redDot(size = 16) {
+  const buf = Buffer.alloc(size * size * 4);
+  const c = (size - 1) / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const d = Math.hypot(x - c, y - c);
+      const i = (y * size + x) * 4;
+      const inner = d <= c - 1.5;
+      const ring = d <= c;
+      // BGRA: vermelho com borda branca para aparecer em barras claras e escuras.
+      buf[i] = inner ? 0x1f : 0xff;
+      buf[i + 1] = inner ? 0x32 : 0xff;
+      buf[i + 2] = inner ? 0xc4 : 0xff;
+      buf[i + 3] = ring ? 0xff : 0;
+    }
+  }
+  return nativeImage.createFromBitmap(buf, { width: size, height: size });
+}
+
+// Minimizado, o aviso vira um botão na barra de tarefas ("Controle remoto ativo").
+// Restaurado, volta a ser só o aviso flutuante (sem botão na barra).
+function setOverlayInTaskbar(value) {
+  if (!overlay || overlay.isDestroyed()) return;
+  overlayInTaskbar = value;
+  overlay.setSkipTaskbar(!value);
+  if (process.platform === 'win32') overlay.setOverlayIcon(value ? redDot() : null, value ? 'Controle remoto ativo' : '');
+}
+
+function overlayPosition(target) {
+  const { workArea } = screen.getDisplayMatching(target);
+  return {
+    x: Math.round(workArea.x + workArea.width - OVERLAY_SIZE.width - 16),
+    y: Math.round(workArea.y + workArea.height - OVERLAY_SIZE.height - 16),
+  };
+}
+
 function showOverlay(peerName, target) {
-  const width = 600;
   if (!overlay || overlay.isDestroyed()) {
     overlay = new BrowserWindow({
-      width, height: 56, frame: false, resizable: false, minimizable: false, maximizable: false,
-      fullscreenable: false, skipTaskbar: true, alwaysOnTop: true, show: false, title: 'Ponte — controle remoto',
+      ...OVERLAY_SIZE, frame: false, resizable: false, movable: true, minimizable: false, maximizable: false,
+      fullscreenable: false, skipTaskbar: true, alwaysOnTop: true, show: false, title: 'Ponte — controle remoto ativo',
       backgroundColor: '#c4321f', webPreferences: secureWebPreferences(),
     });
     overlay.setAlwaysOnTop(true, 'screen-saver');
     overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     overlay.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    overlay.on('moved', () => { overlayMoved = true; });
+    overlay.on('restore', () => setOverlayInTaskbar(false));
+    overlay.on('page-title-updated', (e) => e.preventDefault());
     overlay.loadURL(`${APP_ORIGIN}/overlay.html`);
   }
-  overlay.setPosition(Math.round(target.x + (target.width - width) / 2), Math.round(target.y + 12));
+  if (!overlayMoved) {
+    const { x, y } = overlayPosition(target);
+    overlay.setPosition(x, y);
+  }
+  overlay.setTitle(`● Controle remoto ativo — ${peerName || 'alguém'} está controlando`);
   const reveal = () => {
     overlay?.webContents.send('ponte:overlay', { peerName, shortcut: SHORTCUT_LABEL });
-    overlay?.showInactive();
+    overlay?.showInactive(); // sem roubar o foco de quem está usando o computador
   };
   if (overlay.webContents.isLoading()) overlay.webContents.once('did-finish-load', reveal);
   else reveal();
@@ -401,7 +450,12 @@ function showOverlay(peerName, target) {
 function stopControl() {
   setInjecting(undefined, false);
   if (globalShortcut.isRegistered(REVOKE_ACCELERATOR)) globalShortcut.unregister(REVOKE_ACCELERATOR);
-  if (overlay && !overlay.isDestroyed()) overlay.hide();
+  if (overlay && !overlay.isDestroyed()) {
+    // Próximo controle começa com o aviso visível de novo (não escondido na barra).
+    if (overlay.isMinimized()) overlay.restore();
+    setOverlayInTaskbar(false);
+    overlay.hide();
+  }
   control = { owner: null };
 }
 
@@ -538,6 +592,11 @@ function registerIpc() {
   ipcMain.on('ponte:overlay-revoke', (event) => {
     if (overlay && event.sender === overlay.webContents) revokeControl('overlay');
   });
+  ipcMain.on('ponte:overlay-minimize', (event) => {
+    if (!overlay || event.sender !== overlay.webContents || !control.owner) return;
+    setOverlayInTaskbar(true); // antes de minimizar: sem isso a janela sumiria sem botão
+    overlay.minimize();
+  });
 
   // Atualizações.
   ipcMain.handle('ponte:update-check', (event) => (fromApp(event) ? updater.check({ manual: true }) : false));
@@ -569,6 +628,9 @@ function exposeTestHooks() {
     controlActive: () => injecting && Boolean(control.owner),
     lanPort: () => lan?.port ?? null,
     overlayVisible: () => Boolean(overlay && !overlay.isDestroyed() && overlay.isVisible()),
+    overlayBounds: () => (overlay && !overlay.isDestroyed() ? overlay.getBounds() : null),
+    overlayInTaskbar: () => overlayInTaskbar,
+    minimizeOverlay: () => overlay?.webContents.executeJavaScript("document.getElementById('minimize').click()"),
     revokeViaShortcut: () => revokeControl('shortcut'),
     shortcutRegistered: () => globalShortcut.isRegistered(REVOKE_ACCELERATOR),
   };

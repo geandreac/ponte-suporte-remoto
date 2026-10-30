@@ -111,9 +111,10 @@
   sem mapeamento seguro de coordenadas) **e** compartilhamento não pausado **e** sessão conectada.
   O anfitrião avisa o técnico (`share-state.controlActive`), que só então envia eventos.
 - **Consentimento:** desligado por padrão; ligar durante a sessão abre confirmação explícita.
-- **Visibilidade e revogação:** faixa vermelha sempre por cima de tudo ("X está controlando este
-  computador · Parar controle") e atalho global `Ctrl/⌘+Alt+Shift+X`. Revogar desliga a injeção
-  no processo principal imediatamente e solta botões presos.
+- **Visibilidade e revogação:** aviso vermelho compacto sempre por cima de tudo ("X controlando ·
+  Parar"), no canto inferior direito e arrastável. Pode ser minimizado: vira um botão na barra de
+  tarefas com selo vermelho ("Controle remoto ativo"), que some quando o controle termina. Atalho
+  global `Ctrl/⌘+Alt+Shift+X`. Revogar desliga a injeção imediatamente e solta botões presos.
 - **Processo separado:** a injeção roda num `utilityProcess` (`desktop/input-worker.mjs`) e recebe
   os eventos por um `MessagePort` direto da janela, sem passar pela linha principal do app. No
   Windows, um clique remoto na barra de título de uma janela do próprio Ponte prende a linha

@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('ponteDesktop', {
   onControlRevoked: listen('ponte:control-revoked'),
   onOverlay: listen('ponte:overlay'),
   revokeFromOverlay: () => ipcRenderer.send('ponte:overlay-revoke'),
+  minimizeOverlay: () => ipcRenderer.send('ponte:overlay-minimize'),
 
   // Atualizações
   onUpdateStatus: listen('ponte:update-status'),

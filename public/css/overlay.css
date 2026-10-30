@@ -1,20 +1,24 @@
-/* Faixa sempre visível enquanto alguém controla este computador. */
+/* Aviso compacto e sempre visível enquanto alguém controla este computador.
+   A área do texto serve para arrastar o aviso para outro lugar da tela. */
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 0 10px 0 16px; background: #c4321f; color: #fff;
-  font: 600 14px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  user-select: none; overflow: hidden;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 0 6px 0 12px; background: #c4321f; color: #fff;
+  font: 600 13px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  user-select: none; overflow: hidden; cursor: move;
+  -webkit-app-region: drag;
 }
 .msg { margin: 0; display: flex; align-items: center; gap: 8px; min-width: 0; }
 #text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dot { width: 10px; height: 10px; border-radius: 50%; background: #fff; flex: none; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; flex: none; }
 button {
-  flex: none; cursor: pointer;
-  border: 0; border-radius: 6px; padding: 8px 12px; background: #fff; color: #8f1f12;
-  font: inherit; display: inline-flex; gap: 8px; align-items: center;
+  -webkit-app-region: no-drag; flex: none; cursor: pointer;
+  border: 0; border-radius: 6px; padding: 6px 12px; background: #fff; color: #8f1f12;
+  font: inherit;
 }
 button:hover { background: #ffe9e6; }
+.actions { display: flex; gap: 4px; flex: none; -webkit-app-region: no-drag; }
+button.ghost { background: transparent; color: #fff; padding: 6px 10px; font-size: 16px; line-height: 1; }
+button.ghost:hover { background: rgb(255 255 255 / 18%); }
 button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
-kbd { font: 600 11px/1 ui-monospace, Menlo, Consolas, monospace; opacity: 0.75; }

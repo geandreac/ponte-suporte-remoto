@@ -1,5 +1,11 @@
 # Histórico de versões
 
+## 0.2.3
+- Aviso de controle remoto menor ("Nome controlando · Parar"), no canto inferior direito da tela
+  (fora de barras de título e abas) e arrastável. Pode ser minimizado: vira um botão na barra de
+  tarefas ("Controle remoto ativo", com selo vermelho no Windows) para você continuar ciente do
+  acesso sem nada na tela. Some ao parar o controle.
+
 ## 0.2.2
 - Correção: no Windows, o app de quem recebia ajuda podia travar segundos depois de liberar o
   controle (clique remoto na barra de título prendia o app). A injeção de teclado e mouse agora

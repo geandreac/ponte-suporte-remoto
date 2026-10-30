@@ -647,7 +647,7 @@ function renderSessionPermissions() {
         if (input.name === 'control' && input.checked) {
           const ok = await confirmDialog(
             `Permitir que ${c.peerName} controle este computador?`,
-            `Essa pessoa poderá mover o mouse, clicar e digitar como se fosse você. Você continua vendo tudo e pode retomar o controle a qualquer momento com ${shortcutLabel()} ou pelo botão "Parar controle" na faixa vermelha.`,
+            `Essa pessoa poderá mover o mouse, clicar e digitar como se fosse você. Você continua vendo tudo e pode retomar o controle a qualquer momento com ${shortcutLabel()} ou pelo botão "Parar" no aviso vermelho que fica no canto da tela.`,
             { confirmLabel: 'Permitir controle', destructive: true },
           );
           if (!ok) return renderSessionPermissions();

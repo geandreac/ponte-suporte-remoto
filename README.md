@@ -45,8 +45,9 @@ Os instaladores são gerados pelo GitHub Actions (workflow **Executáveis**) sem
 
 Quem presta suporte pede **Controlar teclado e mouse**; quem recebe ajuda libera (desligado por
 padrão, com confirmação explícita). Funciona quando quem recebe ajuda usa o **app de computador**
-e compartilha a **tela inteira**. Durante o controle, uma faixa vermelha fica sempre por cima de
-tudo com o botão **Parar controle**, e o atalho **Ctrl+Alt+Shift+X** (⌘⌥⇧X no Mac) retoma o
+e compartilha a **tela inteira**. Durante o controle, um aviso vermelho compacto fica sempre por
+cima de tudo, no canto inferior direito (dá para arrastar ou **minimizar**: aí vira um botão na
+barra de tarefas com selo vermelho), com o botão **Parar**, e o atalho **Ctrl+Alt+Shift+X** (⌘⌥⇧X no Mac) retoma o
 controle na hora. Pausar o compartilhamento também suspende o controle.
 
 - macOS: permita o Ponte em **Ajustes do Sistema › Privacidade e Segurança › Acessibilidade**.
