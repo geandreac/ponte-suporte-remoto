@@ -11,14 +11,14 @@
 // - Atualização automática (updater.mjs).
 
 import {
-  app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeTheme, protocol, screen,
-  session, shell, systemPreferences, webContents,
+  app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, MessageChannelMain, nativeTheme,
+  protocol, screen,
+  session, shell, systemPreferences, utilityProcess, webContents,
 } from 'electron';
 import electronUpdater from 'electron-updater';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer as createHttpsServer } from 'node:https';
-import { createRequire } from 'node:module';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp, MIME, resolveStaticPath, securityHeaders } from '../server/app.js';
@@ -26,7 +26,7 @@ import { loadConfig } from '../server/config.js';
 import {
   normalizeSecret, normalizeSessionId, SECRET_PATTERN, SESSION_ID_PATTERN,
 } from '../shared/protocol.js';
-import { createInjector, REVOKE_ACCELERATOR } from './input.mjs';
+import { REVOKE_ACCELERATOR } from './input.mjs';
 import {
   createResponder, deriveInviteKey, discover, ensureCertificate, isValidAddress, localAddresses,
 } from './lan.mjs';
@@ -36,6 +36,7 @@ import { createUpdater, RELEASES_URL, updateMode } from './updater.mjs';
 const APP_ORIGIN = 'ponte://app';
 const DOCS_URL = 'https://github.com/geandreac/ponte-suporte-remoto#readme';
 const PRELOAD = fileURLToPath(new URL('./preload.cjs', import.meta.url));
+const INPUT_WORKER = fileURLToPath(new URL('./input-worker.mjs', import.meta.url));
 const ALLOWED_PERMISSIONS = new Set(['display-capture', 'clipboard-sanitized-write', 'fullscreen']);
 const SHORTCUT_LABEL = process.platform === 'darwin' ? '⌘⌥⇧X' : 'Ctrl+Alt+Shift+X';
 
@@ -54,8 +55,9 @@ const captureTargets = new Map(); // webContents.id -> área da tela compartilha
 const pinned = new Map(); // host -> impressões digitais aceitas (rede local)
 let lan = null;
 let lanStarting = null;
-let robot = null;
-let injector = null;
+let inputWorker = null;
+let injecting = false;
+const posRequests = new Map();
 let inputStatus = { available: false, reason: 'module' };
 let control = { owner: null };
 let overlay = null;
@@ -100,7 +102,7 @@ async function start() {
     connectSrc = ["'self'", `ws://127.0.0.1:${port}`, 'wss:'];
   }
 
-  inputStatus = initInput();
+  inputStatus = await initInput();
   registerProtocol();
   hardenSession();
   registerIpc();
@@ -292,23 +294,62 @@ function closeLan() {
 
 /* ================= Controle remoto ================= */
 
+// A injeção roda num processo separado (input-worker.mjs): no Windows, um clique injetado na
+// barra de título de uma janela deste app prende a linha principal num laço modal até o botão
+// ser solto; se a injeção rodasse aqui, o "soltar" nunca sairia e o app travaria.
 function initInput() {
   if (process.platform === 'linux' && process.env.XDG_SESSION_TYPE === 'wayland') {
-    return { available: false, reason: 'wayland' };
+    return Promise.resolve({ available: false, reason: 'wayland' });
   }
-  try {
-    robot = createRequire(import.meta.url)('@jitsi/robotjs');
-    robot.setMouseDelay(0);
-    robot.setKeyboardDelay(0);
-    injector = createInjector({
-      robot,
-      // Windows/Linux trabalham em pixels físicos; o Electron informa a tela em pontos lógicos.
-      toScreenPoint: (p) => (process.platform === 'darwin' ? p : screen.dipToScreenPoint(p)),
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (status) => {
+      if (settled) return;
+      settled = true;
+      resolve(status);
+    };
+    const worker = utilityProcess.fork(INPUT_WORKER, [], { serviceName: 'Ponte - controle remoto', stdio: 'ignore' });
+    worker.on('message', (data) => {
+      if (data?.t === 'ready') {
+        if (data.ok) {
+          inputWorker = worker;
+          done({ available: true, reason: '' });
+        } else {
+          worker.kill();
+          done({ available: false, reason: 'module' });
+        }
+      } else if (data?.t === 'pos') {
+        posRequests.get(data.id)?.({ ...data.pos, lastInjectAt: data.lastInjectAt });
+        posRequests.delete(data.id);
+      }
     });
-    return { available: true, reason: '' };
-  } catch {
-    return { available: false, reason: 'module' };
-  }
+    worker.on('exit', () => {
+      if (inputWorker !== worker) return done({ available: false, reason: 'module' });
+      inputWorker = null;
+      inputStatus = { available: false, reason: 'module' };
+      revokeControl('unavailable');
+    });
+    setTimeout(() => {
+      if (!settled) worker.kill();
+      done({ available: false, reason: 'module' });
+    }, 10_000);
+  });
+}
+
+const postInput = (data) => inputWorker?.postMessage(data);
+
+// Windows/Linux injetam em pixels físicos; o Electron informa as telas em pontos lógicos.
+function toPhysical(bounds) {
+  if (process.platform === 'darwin') return bounds;
+  const tl = screen.dipToScreenPoint({ x: bounds.x, y: bounds.y });
+  const br = screen.dipToScreenPoint({ x: bounds.x + bounds.width, y: bounds.y + bounds.height });
+  return { x: tl.x, y: tl.y, width: br.x - tl.x, height: br.y - tl.y };
+}
+
+function setInjecting(target, enabled) {
+  if (target !== undefined) postInput({ t: 'target', bounds: target ? toPhysical(target) : null });
+  injecting = enabled;
+  postInput({ t: 'enabled', value: enabled });
 }
 
 function targetForSource(source) {
@@ -330,7 +371,8 @@ function targetForSource(source) {
 
 function setCaptureTarget(wc, bounds) {
   captureTargets.set(wc.id, bounds);
-  if (control.owner === wc) injector.setTarget(bounds);
+  // Sem tela inteira (ex.: passou a compartilhar uma janela), o injetor ignora os eventos.
+  if (control.owner === wc) postInput({ t: 'target', bounds: bounds ? toPhysical(bounds) : null });
   wc.send('ponte:capture-target', { controllable: Boolean(bounds) && inputStatus.available });
 }
 
@@ -357,7 +399,7 @@ function showOverlay(peerName, target) {
 }
 
 function stopControl() {
-  injector?.setEnabled(false);
+  setInjecting(undefined, false);
   if (globalShortcut.isRegistered(REVOKE_ACCELERATOR)) globalShortcut.unregister(REVOKE_ACCELERATOR);
   if (overlay && !overlay.isDestroyed()) overlay.hide();
   control = { owner: null };
@@ -379,8 +421,11 @@ function startControl(wc, peerName) {
   if (!target) return 'no_target';
   if (control.owner && control.owner !== wc) revokeControl('replaced');
   control = { owner: wc };
-  injector.setTarget(target);
-  injector.setEnabled(true);
+  setInjecting(target, true);
+  // Canal direto janela -> processo de injeção (não passa pela linha principal; ver initInput).
+  const { port1, port2 } = new MessageChannelMain();
+  inputWorker.postMessage({ t: 'port' }, [port2]);
+  wc.postMessage('ponte:input-port', null, [port1]);
   if (!globalShortcut.isRegistered(REVOKE_ACCELERATOR)) {
     globalShortcut.register(REVOKE_ACCELERATOR, () => revokeControl('shortcut'));
   }
@@ -490,9 +535,6 @@ function registerIpc() {
     if (control.owner === event.sender) stopControl();
     return 'ok';
   });
-  ipcMain.on('ponte:input', (event, msg) => {
-    if (control.owner && event.sender === control.owner) injector.handle(msg);
-  });
   ipcMain.on('ponte:overlay-revoke', (event) => {
     if (overlay && event.sender === overlay.webContents) revokeControl('overlay');
   });
@@ -519,8 +561,12 @@ function registerIpc() {
 
 function exposeTestHooks() {
   globalThis.__ponteTest = {
-    mousePos: () => robot?.getMousePos() ?? null,
-    controlActive: () => Boolean(injector?.active),
+    mousePos: () => new Promise((resolve) => {
+      const id = randomUUID();
+      posRequests.set(id, resolve);
+      postInput({ t: 'pos', id });
+    }),
+    controlActive: () => injecting && Boolean(control.owner),
     lanPort: () => lan?.port ?? null,
     overlayVisible: () => Boolean(overlay && !overlay.isDestroyed() && overlay.isVisible()),
     revokeViaShortcut: () => revokeControl('shortcut'),
@@ -610,6 +656,7 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   stopControl();
+  inputWorker?.kill();
   globalShortcut.unregisterAll();
   closeLan();
   embedded?.close();

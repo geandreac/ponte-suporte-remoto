@@ -1,5 +1,12 @@
 # Histórico de versões
 
+## 0.2.2
+- Correção: no Windows, o app de quem recebia ajuda podia travar segundos depois de liberar o
+  controle (clique remoto na barra de título prendia o app). A injeção de teclado e mouse agora
+  roda num processo separado, recebendo os comandos por um canal direto.
+- Botão do mouse "preso" por 15 s sem comandos é solto automaticamente.
+- A faixa de controle remoto não pode mais ser arrastada.
+
 ## 0.2.1
 - Versão de verificação da atualização automática (sem mudanças de funcionamento).
 

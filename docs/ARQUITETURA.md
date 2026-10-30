@@ -114,6 +114,12 @@
 - **Visibilidade e revogação:** faixa vermelha sempre por cima de tudo ("X está controlando este
   computador · Parar controle") e atalho global `Ctrl/⌘+Alt+Shift+X`. Revogar desliga a injeção
   no processo principal imediatamente e solta botões presos.
+- **Processo separado:** a injeção roda num `utilityProcess` (`desktop/input-worker.mjs`) e recebe
+  os eventos por um `MessagePort` direto da janela, sem passar pela linha principal do app. No
+  Windows, um clique remoto na barra de título de uma janela do próprio Ponte prende a linha
+  principal num laço modal até o botão ser solto; com a injeção nessa linha, o "soltar" nunca
+  chegava e o app travava (0.2.0/0.2.1). A linha principal só liga/desliga e define a tela-alvo.
+  Botão pressionado por 15 s sem comandos é solto automaticamente.
 - **Validação em camadas:** técnico → protocolo (`validateDataMessage`) → anfitrião (permissão e
   estado) → processo principal (valida de novo, só aceita eventos da janela dona do controle).
 - **Teclado:** texto é digitado pelo caractere (funciona com ABNT2/AltGr); atalhos (Ctrl+C,

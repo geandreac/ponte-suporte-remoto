@@ -218,3 +218,15 @@ test('atualizador em modo "avisar" e sem suporte', () => {
   assert.equal(none.check(), false);
   assert.equal(none.status.state, 'unsupported');
 });
+
+test('injetor informa botões pressionados (proteção contra botão preso)', () => {
+  const robot = fakeRobot();
+  const inj = createInjector({ robot });
+  inj.setTarget(SCREEN);
+  inj.setEnabled(true);
+  inj.handle({ type: 'input', kind: 'pointerdown', x: 0.5, y: 0.5, button: 0 });
+  assert.equal(inj.pressedCount, 1);
+  inj.releaseAll();
+  assert.equal(inj.pressedCount, 0);
+  assert.deepEqual(robot.calls.at(-1), ['toggle', 'up', 'left']);
+});

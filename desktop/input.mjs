@@ -99,6 +99,9 @@ export function createInjector({ robot, toScreenPoint = (p) => p }) {
     get active() {
       return enabled && Boolean(target);
     },
+    get pressedCount() {
+      return pressed.size;
+    },
     setTarget(bounds) {
       releaseAll();
       target = bounds && bounds.width > 0 && bounds.height > 0 ? { ...bounds } : null;

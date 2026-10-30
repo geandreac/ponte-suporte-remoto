@@ -4,6 +4,14 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const signalingUrl = ipcRenderer.sendSync('ponte:signaling-url');
+
+// Canal direto para o processo de controle remoto, entregue pelo processo principal quando o
+// controle é ligado. Os eventos não passam pela linha principal (ver desktop/input-worker.mjs).
+let inputPort = null;
+ipcRenderer.on('ponte:input-port', (event) => {
+  inputPort?.close();
+  [inputPort] = event.ports;
+});
 const listen = (channel) => (callback) => {
   ipcRenderer.on(channel, (_event, payload) => callback(payload));
 };
@@ -31,7 +39,7 @@ contextBridge.exposeInMainWorld('ponteDesktop', {
 
   // Controle remoto
   setControlActive: (active, peerName) => ipcRenderer.invoke('ponte:control-state', active === true, String(peerName ?? '')),
-  injectInput: (msg) => ipcRenderer.send('ponte:input', msg),
+  injectInput: (msg) => inputPort?.postMessage(msg),
   onCaptureTarget: listen('ponte:capture-target'),
   onControlRevoked: listen('ponte:control-revoked'),
   onOverlay: listen('ponte:overlay'),
