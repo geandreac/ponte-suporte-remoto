@@ -25,6 +25,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Teste ponta a ponta (dois navegadores reais)
         run: npm run test:e2e
+      - name: Biblioteca XTest (controle remoto no Linux)
+        run: sudo apt-get install -y libxtst6
       - name: Teste do app de computador (Electron + Xvfb)
         run: xvfb-run -a -s "-screen 0 1280x800x24" npm run test:desktop
       - name: Capturas de tela dos testes

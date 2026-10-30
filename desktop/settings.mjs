@@ -6,12 +6,13 @@ import { join } from 'node:path';
 
 const FILE = 'settings.json';
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
-export const DEFAULT_SETTINGS = Object.freeze({ mode: 'local', serverUrl: '' });
+export const DEFAULT_SETTINGS = Object.freeze({ mode: 'local', serverUrl: '', autoUpdate: true });
 
 // Aceita só HTTPS (ou HTTP no próprio computador, para desenvolvimento) e guarda apenas a origem.
 export function validateSettings(input) {
   const mode = input?.mode === 'remote' ? 'remote' : 'local';
-  if (mode === 'local') return { ok: true, value: { mode, serverUrl: '' } };
+  const autoUpdate = input?.autoUpdate !== false; // ligado por padrão
+  if (mode === 'local') return { ok: true, value: { mode, serverUrl: '', autoUpdate } };
   const raw = typeof input?.serverUrl === 'string' ? input.serverUrl.trim() : '';
   if (!raw) return { ok: false, error: 'Digite o endereço do servidor.' };
   let url;
@@ -25,7 +26,7 @@ export function validateSettings(input) {
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback)) {
     return { ok: false, error: 'Use um endereço HTTPS para proteger a conexão.' };
   }
-  return { ok: true, value: { mode, serverUrl: url.origin } };
+  return { ok: true, value: { mode, serverUrl: url.origin, autoUpdate } };
 }
 
 export function signalingUrlFor(serverUrl) {

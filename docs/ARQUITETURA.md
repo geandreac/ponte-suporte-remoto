@@ -87,20 +87,49 @@
 - Arquivos: lista de tipos, 25 MB, MIME coerente, assinatura do conteúdo, SHA-256, aceite
   explícito, blocos fora de transferência aceita descartados, revalidação no lado que recebe.
 
+## Rede local (modo padrão do app)
+
+1. Ao gerar o convite, o app abre (só enquanto houver convite/sessão dele) um servidor de
+   sinalização **TLS** em `0.0.0.0` com certificado próprio (gerado no 1º uso, chave `0600`) e um
+   respondedor **UDP 47800**.
+2. Quem presta suporte envia em broadcast (ou direto a um endereço) `{id, nonce}`. O código **não
+   trafega**.
+3. Só o computador com aquele convite responde `{porta, impressão digital do certificado, mac}`,
+   onde `mac = HMAC-SHA256(scrypt(código, id), id|nonce|porta|impressão)`. Quem pede verifica com
+   o código que tem: resposta forjada (sem o código) é descartada; o nonce impede reaproveitar
+   respostas; o scrypt (N=2^15) torna inviável descobrir o código escutando a rede no prazo do convite.
+4. A conexão `wss://` é aceita só se o certificado for exatamente o anunciado (pinning via
+   `setCertificateVerifyProc`). Depois disso, o fluxo é o mesmo: pedido, aprovação, WebRTC.
+5. Após o convite ser usado, o computador deixa de responder buscas; ao fim da sessão, fecha as portas.
+
 ## Controle remoto
 
-**Situação:** não implementado. Na versão web é impossível (navegadores não geram eventos de
-teclado/mouse no sistema). No app de computador é tecnicamente possível, mas exige um módulo
-nativo de injeção de entrada e cuidados de segurança que ainda não foram feitos.
+- **Onde:** só no app de computador, via `@jitsi/robotjs` (N-API, binários prontos para Windows,
+  macOS e Linux X11). Na web e no Wayland, a capacidade `inputInjection` é falsa e a permissão
+  aparece como indisponível.
+- **Quando fica ativo:** permissão `control` concedida **e** tela inteira compartilhada (não janela:
+  sem mapeamento seguro de coordenadas) **e** compartilhamento não pausado **e** sessão conectada.
+  O anfitrião avisa o técnico (`share-state.controlActive`), que só então envia eventos.
+- **Consentimento:** desligado por padrão; ligar durante a sessão abre confirmação explícita.
+- **Visibilidade e revogação:** faixa vermelha sempre por cima de tudo ("X está controlando este
+  computador · Parar controle") e atalho global `Ctrl/⌘+Alt+Shift+X`. Revogar desliga a injeção
+  no processo principal imediatamente e solta botões presos.
+- **Validação em camadas:** técnico → protocolo (`validateDataMessage`) → anfitrião (permissão e
+  estado) → processo principal (valida de novo, só aceita eventos da janela dona do controle).
+- **Teclado:** texto é digitado pelo caractere (funciona com ABNT2/AltGr); atalhos (Ctrl+C,
+  Alt+Tab, setas, F1–F12) usam a tecla física com modificadores. Ctrl+Alt+Del não pode ser
+  injetado (proteção do Windows).
+- **Mouse:** coordenadas 0–1 da imagem (descontando faixas pretas) → pixels da tela compartilhada,
+  com conversão de pontos lógicos para físicos em telas com escala (Windows/Linux).
 
-**O que já está pronto para isso:** a mensagem `input` (coordenadas normalizadas 0–1, teclas,
-botões) é validada em `shared/protocol.js`; a permissão `control` exige a capacidade
-`inputInjection` declarada pelo dispositivo; o anfitrião descarta `input` sem permissão.
+## Atualização automática
 
-**Proposta:** no app de computador, declarar `inputInjection: true` e injetar eventos pelo SO (SendInput no Windows, CGEvent no macOS com
-permissão de Acessibilidade, XTest/uinput no Linux). Requisitos: consentimento explícito antes de
-cada sessão de controle, atalho global para revogar, indicador sempre visível, e bloqueio de
-sequências críticas (ex.: Ctrl+Alt+Del) por padrão.
+`electron-updater` com o provedor GitHub: o app lê `latest*.yml` da última Release (publicada pelo
+workflow junto com os instaladores), baixa e confere o **SHA-512**. Windows (NSIS) e AppImage
+instalam ao fechar ou pelo botão "Reiniciar e atualizar" (bloqueado durante sessões). macOS (sem
+assinatura), Windows portátil e .deb só avisam e abrem a página da Release. Pode ser desligada em
+Ajustes. Limitação: sem assinatura de código, a confiança se apoia na Release do GitHub (HTTPS +
+SHA-512); quem controlar a conta do repositório consegue publicar uma atualização.
 
 ## Acesso não assistido
 
@@ -119,6 +148,6 @@ captura sem confirmação a cada sessão. Proposta mínima segura:
 1. Autenticação de técnicos (contas, OIDC/passkeys) e exibir identidade verificada na aprovação.
 2. TURN próprio (coturn) com `use-auth-secret` — já suportado pelo servidor.
 3. Persistência compartilhada (Redis) para múltiplas instâncias e reinícios sem derrubar sessões.
-4. Controle remoto no app de computador e, depois, acesso não assistido.
+4. Acesso não assistido (com as salvaguardas acima).
 5. Assinatura digital dos instaladores (Apple Developer ID + notarização; certificado Authenticode).
 6. Revisão jurídica (LGPD), política de retenção do log de auditoria e teste de intrusão.

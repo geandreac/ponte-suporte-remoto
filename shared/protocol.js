@@ -162,7 +162,7 @@ export function validateDataMessage(msg) {
     }
     case 'share-state':
       return typeof msg.paused === 'boolean'
-        ? ok({ type, paused: msg.paused, captureActive: msg.captureActive === true })
+        ? ok({ type, paused: msg.paused, captureActive: msg.captureActive === true, controlActive: msg.controlActive === true })
         : fail('invalid_message');
     case 'recording-state':
       return typeof msg.active === 'boolean' ? ok({ type, active: msg.active }) : fail('invalid_message');

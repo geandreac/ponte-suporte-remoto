@@ -4,6 +4,7 @@ import { clearHistory, loadHistory } from './history.js';
 import { endMessage, errorMessage, STATE_TEXT } from './messages.js';
 import { SessionRecorder } from './recorder.js';
 import { canCaptureScreen, HostController, ViewerController } from './session-controller.js';
+import { startRemoteInput } from './remote-input.js';
 import { SignalingClient } from './signaling-client.js';
 import {
   $, closeDialog, confirmDialog, countdown, currentView, el, formatSize, formatTime, icon, openDialog,
@@ -18,7 +19,10 @@ import {
 // No app de computador, o preload informa o servidor configurado. No navegador, é o próprio site.
 const desktop = window.ponteDesktop ?? null;
 const wsUrl = desktop?.signalingUrl ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
-const signaling = new SignalingClient(wsUrl);
+// Informações do app de computador (modo de conexão, controle remoto, atualização). Carregadas em setupDesktop().
+let desktopInfo = null;
+const lanMode = () => desktopInfo?.mode === 'local';
+const shortcutLabel = () => desktopInfo?.shortcut ?? 'Ctrl+Alt+Shift+X';
 
 let controller = null;
 let stopCountdown = () => {};
@@ -41,6 +45,7 @@ function inFlow() {
 
 function syncNav() {
   const flow = inFlow();
+  if (updateStatus) renderUpdate(updateStatus);
   document.body.dataset.flow = flow ? 'active' : 'idle';
   $('nav-session').hidden = !flow;
   const active = NAV_FOR_VIEW[currentView()];
@@ -78,10 +83,27 @@ const SIGNAL_TEXT = {
   reconnecting: 'Reconectando ao servidor…',
   offline: 'Servidor desconectado',
 };
-signaling.addEventListener('status', (e) => {
-  $('signal-status').dataset.status = e.detail;
-  $('signal-status').querySelector('.status-text').textContent = SIGNAL_TEXT[e.detail];
-});
+// Cada sessão tem sua conexão de sinalização (na rede local, quem presta suporte se conecta
+// direto ao computador de quem gerou o convite).
+function createSignaling(url) {
+  const client = new SignalingClient(url);
+  client.addEventListener('status', (e) => {
+    if (controller?.signaling !== client) return;
+    $('signal-status').dataset.status = e.detail;
+    $('signal-status').querySelector('.status-text').textContent = SIGNAL_TEXT[e.detail];
+  });
+  return client;
+}
+
+// Integração do controle remoto (só no app de computador, quando o sistema permite).
+function controlPlatform() {
+  if (!desktop || !desktopInfo?.input?.available) return null;
+  return {
+    inputInjection: true,
+    setControlActive: (active, peerName) => desktop.setControlActive(active, peerName),
+    injectInput: (msg) => desktop.injectInput(msg),
+  };
+}
 
 /* ================= Receber suporte ================= */
 
@@ -109,7 +131,7 @@ $('form-host').addEventListener('submit', (e) => {
   e.preventDefault();
   showHostError('');
   setBusy($('btn-create-invite'), true, 'Gerando convite…');
-  const host = new HostController({ signaling });
+  const host = new HostController({ signaling: createSignaling(wsUrl), platform: controlPlatform() });
   useController(host);
   host.start(sanitizeName($('host-name').value));
 });
@@ -122,7 +144,7 @@ function renderTechPermissions() {
     options: {
       view: { checked: true },
       chat: { checked: true },
-      control: { disabled: true, hint: 'Ainda não disponível: exige um agente de controle instalado no outro computador.' },
+      control: { hint: 'Funciona quando a outra pessoa usa o app de computador e compartilha a tela inteira.' },
     },
   });
 }
@@ -137,7 +159,7 @@ function showTechError(text) {
   $('tech-form-error').hidden = !text;
 }
 
-$('form-tech').addEventListener('submit', (e) => {
+$('form-tech').addEventListener('submit', async (e) => {
   e.preventDefault();
   showTechError('');
   const sessionId = normalizeSessionId($('tech-session').value);
@@ -156,8 +178,25 @@ $('form-tech').addEventListener('submit', (e) => {
   }
   if (firstInvalid) return firstInvalid.focus();
   if (!Object.values(requested).some(Boolean)) return showTechError(errorMessage('no_permissions_requested'));
+  let url = wsUrl;
+  if (desktop && lanMode()) {
+    const address = $('tech-address').value.trim();
+    setFieldError($('tech-address'), $('err-address'), '');
+    setBusy($('btn-join'), true, 'Procurando na rede…');
+    const found = await desktop.lanDiscover(sessionId, secret, address);
+    setBusy($('btn-join'), false);
+    if (!found.ok) {
+      if (found.error === 'invalid_address') {
+        setFieldError($('tech-address'), $('err-address'), 'Endereço inválido. Exemplo: 192.168.0.10');
+        return $('tech-address').focus();
+      }
+      $('lan-address-box').open = true;
+      return showTechError(errorMessage(address ? 'lan_not_found_address' : 'lan_not_found'));
+    }
+    url = found.url;
+  }
   setBusy($('btn-join'), true, 'Enviando pedido…');
-  const viewer = new ViewerController({ signaling });
+  const viewer = new ViewerController({ signaling: createSignaling(url) });
   useController(viewer);
   viewer.join({ sessionId, secret, name, requested });
 });
@@ -211,6 +250,16 @@ async function setupDesktop() {
   if (!desktop) return;
   for (const n of document.querySelectorAll('[data-desktop-only]')) n.hidden = false;
   const settings = await desktop.getSettings();
+  desktopInfo = settings;
+  $('lan-address-box').hidden = !lanMode();
+  renderControlSupport();
+  setupUpdates(settings);
+  desktop.onCaptureTarget(({ controllable }) => {
+    if (controller?.role === 'host') controller.setCaptureControllable(controllable);
+  });
+  desktop.onControlRevoked(() => {
+    if (controller?.role === 'host') controller.onControlRevoked();
+  });
   $(settings.mode === 'remote' ? 'mode-remote' : 'mode-local').checked = true;
   $('server-url').value = settings.serverUrl ?? '';
   $('app-version').textContent = settings.version ?? '';
@@ -263,6 +312,8 @@ async function setupDesktop() {
 
 function useController(c) {
   controller?.dispose();
+  controller?.signaling.close();
+  stopControlling();
   controller = c;
   document.body.dataset.role = c.role;
   resetSessionUi();
@@ -295,6 +346,7 @@ function useController(c) {
     updateStage();
   });
   c.addEventListener('recording', (e) => onRecording(e.detail));
+  c.addEventListener('control', () => updateBanner());
   c.addEventListener('ended', (e) => onEnded(e.detail.reason));
 
   if (c.role === 'host') bindHost(c);
@@ -318,6 +370,8 @@ function onState(state) {
     go('view-pending');
   } else if (state === 'connecting' && $('view-session').hidden) {
     stopCountdown();
+    // Convite usado: o computador deixa de responder a buscas na rede (a sessão continua).
+    if (desktop && controller?.role === 'host' && lanMode()) desktop.lanInviteUsed(controller.sessionId);
     go('view-session');
     tabs.select('tab-perms');
     renderSessionPermissions();
@@ -336,6 +390,7 @@ function bindHost(c) {
     $('invite-secret').textContent = formatSecret(secret);
     stopCountdown();
     stopCountdown = countdown($('invite-countdown'), expiresAt);
+    openLanForInvite(sessionId, secret);
   });
   c.addEventListener('join-request', (e) => openApproveDialog(e.detail));
   c.addEventListener('join-request-closed', (e) => {
@@ -358,9 +413,11 @@ function hostPermissionOptions(c) {
     options[p] = {
       checked: p === 'view' && supported,
       disabled: !supported,
-      hint: supported ? PERMISSION_HINTS[p] : (p === 'control'
-        ? 'Indisponível: este dispositivo não tem o agente de controle.'
-        : 'Indisponível: este dispositivo não compartilha a tela.'),
+      hint: !supported
+        ? (p === 'control' ? controlUnavailableHint() : 'Indisponível: este dispositivo não compartilha a tela.')
+        : (p === 'control'
+          ? `Permite clicar e digitar no seu computador. Só funciona compartilhando a tela inteira. Para retomar a qualquer momento: ${shortcutLabel()}.`
+          : PERMISSION_HINTS[p]),
     };
   }
   return options;
@@ -586,6 +643,15 @@ function renderSessionPermissions() {
     renderPermissionChoices(box, { name: 'live', only: shown, options, showState: true });
     for (const input of box.querySelectorAll('input')) {
       input.addEventListener('change', async () => {
+        // Controle de teclado e mouse exige um consentimento explícito na hora de ligar.
+        if (input.name === 'control' && input.checked) {
+          const ok = await confirmDialog(
+            `Permitir que ${c.peerName} controle este computador?`,
+            `Essa pessoa poderá mover o mouse, clicar e digitar como se fosse você. Você continua vendo tudo e pode retomar o controle a qualquer momento com ${shortcutLabel()} ou pelo botão "Parar controle" na faixa vermelha.`,
+            { confirmLabel: 'Permitir controle', destructive: true },
+          );
+          if (!ok) return renderSessionPermissions();
+        }
         try {
           await c.setPermissions({ ...c.granted, [input.name]: input.checked });
         } catch {
@@ -651,6 +717,7 @@ function updateBanner() {
     $('banner-record').textContent = `${c.peerName} está gravando a sessão`;
   } else {
     sharing = c.can('view') && !c.hostPaused;
+    syncControlButton();
     text = sharing ? `Você está vendo a tela de ${c.peerName}` : `Sessão com ${c.peerName}: tela indisponível`;
     $('banner-record-item').hidden = !c.recording;
     $('banner-record').textContent = 'Você está gravando';
@@ -658,7 +725,7 @@ function updateBanner() {
   }
   banner.dataset.sharing = String(sharing);
   $('banner-share').textContent = text;
-  $('banner-control').textContent = c.can('control') ? 'Controle remoto: ATIVO' : 'Controle remoto: desativado';
+  $('banner-control').textContent = controlBannerText(c);
   $('session-title').textContent = `Sessão com ${c.peerName}`;
   $('session-peer').textContent = c.role === 'host' ? 'Você está recebendo suporte' : 'Você está prestando suporte';
   document.title = c.role === 'host' && sharing ? `● Compartilhando a tela · ${BASE_TITLE}` : BASE_TITLE;
@@ -864,7 +931,9 @@ function onEnded(reason) {
   $('ended-icon').querySelector('use').setAttribute('href', kind === 'ok' ? '#i-check' : '#i-warning');
   $('ended-reason').textContent = endMessage(reason, c.role);
   go('view-ended');
-  signaling.close();
+  c.signaling.close();
+  stopControlling();
+  if (desktop && c.role === 'host' && c.sessionId) desktop.lanHostStop(c.sessionId);
 }
 
 $('btn-home').addEventListener('click', () => {
@@ -891,6 +960,154 @@ $('dlg-confirm').querySelector('form').addEventListener('submit', (e) => {
 window.addEventListener('beforeunload', (e) => {
   if (inFlow()) e.preventDefault();
 });
+
+/* ---------- Rede local ---------- */
+
+async function openLanForInvite(sessionId, secret) {
+  const row = $('invite-lan');
+  row.hidden = true;
+  if (!desktop || !lanMode()) return;
+  const result = await desktop.lanHostStart(sessionId, secret);
+  row.replaceChildren();
+  if (result.ok) {
+    row.dataset.kind = 'ok';
+    const where = result.addresses.length ? `Na rede local: ${result.addresses.join(', ')}` : 'Na rede local';
+    row.append(icon('check'), el('span', {}, `${where}. Computadores no mesmo Wi-Fi encontram este convite pelo ID e código.`));
+  } else {
+    row.dataset.kind = 'warning';
+    row.append(icon('warning'), el('span', {}, 'Não foi possível abrir a rede local (verifique o firewall). O convite só funciona neste computador.'));
+  }
+  row.hidden = false;
+}
+
+/* ---------- Controle remoto ---------- */
+
+function controlUnavailableHint() {
+  const reason = desktopInfo?.input?.reason;
+  if (!desktop) return 'Indisponível no navegador: use o app de computador.';
+  if (reason === 'wayland') return 'Indisponível no Wayland. Entre numa sessão Xorg para permitir o controle.';
+  return 'Indisponível neste computador.';
+}
+
+function renderControlSupport() {
+  const info = desktopInfo?.input;
+  let text = controlUnavailableHint();
+  if (info?.available) {
+    text = `Disponível. Só funciona compartilhando a tela inteira. Para retomar o controle a qualquer momento: ${shortcutLabel()}.`;
+    if (desktop.platform === 'darwin') text += ' No macOS, permita o Ponte em Ajustes do Sistema › Privacidade e Segurança › Acessibilidade.';
+  }
+  $('control-support').textContent = text;
+}
+
+function controlBannerText(c) {
+  if (c.role === 'host') {
+    if (c.controlActive) return `Controle remoto ATIVO · ${shortcutLabel()} para retomar`;
+    if (c.can('control')) return c.controllable ? 'Controle remoto liberado (pausado)' : 'Controle remoto liberado: compartilhe a tela inteira';
+    return 'Controle remoto: desativado';
+  }
+  if (remoteInput) return 'Você está controlando o computador';
+  return c.canControl ? 'Controle remoto disponível' : 'Controle remoto: desativado';
+}
+
+let remoteInput = null;
+
+function stopControlling() {
+  remoteInput?.stop();
+  remoteInput = null;
+  const btn = $('btn-control');
+  btn.setAttribute('aria-pressed', 'false');
+  setButtonText(btn, 'Controlar');
+}
+
+function syncControlButton() {
+  const c = controller;
+  const btn = $('btn-control');
+  const allowed = Boolean(c?.role === 'viewer' && c.canControl);
+  btn.disabled = !allowed;
+  btn.title = allowed ? '' : 'A outra pessoa precisa liberar o controle e compartilhar a tela inteira.';
+  if (!allowed && remoteInput) {
+    stopControlling();
+    toast('O controle remoto foi encerrado pela outra pessoa.');
+  }
+}
+
+$('btn-control').addEventListener('click', () => {
+  const c = controller;
+  if (remoteInput) {
+    stopControlling();
+  } else if (c?.canControl) {
+    remoteInput = startRemoteInput({ stage: $('stage'), video: $('video'), send: (msg) => c.sendInput(msg) });
+    $('btn-control').setAttribute('aria-pressed', 'true');
+    setButtonText($('btn-control'), 'Parar de controlar');
+    toast('Mouse e teclado agora agem no outro computador enquanto a tela estiver em foco.');
+  }
+  updateBanner();
+});
+
+/* ---------- Atualizações (app de computador) ---------- */
+
+let updateStatus = null;
+
+const UPDATE_TEXT = {
+  unsupported: 'Disponível no app instalado.',
+  idle: 'Ainda não verificado.',
+  checking: 'Procurando atualizações…',
+  'up-to-date': 'Você está usando a versão mais recente.',
+  error: 'Não foi possível verificar agora. Tente mais tarde.',
+};
+
+function setupUpdates(settings) {
+  const sw = $('auto-update');
+  sw.checked = settings.autoUpdate !== false;
+  const mode = settings.update?.mode;
+  sw.disabled = mode === 'unsupported';
+  $('btn-update-check').disabled = mode === 'unsupported';
+  if (mode === 'notify') $('auto-update-hint').textContent = 'Neste formato (macOS, portátil ou .deb) o Ponte avisa e abre a página para baixar a nova versão.';
+  sw.addEventListener('change', async () => {
+    sw.checked = await desktop.setAutoUpdate(sw.checked);
+  });
+  $('btn-update-check').addEventListener('click', () => desktop.checkForUpdates());
+  $('btn-update-action').addEventListener('click', onUpdateAction);
+  desktop.onUpdateStatus(renderUpdate);
+  renderUpdate(settings.update);
+}
+
+function renderUpdate(status) {
+  if (!status) return;
+  updateStatus = status;
+  let text = UPDATE_TEXT[status.state] ?? '';
+  if (status.state === 'available') text = `Versão ${status.version} disponível.`;
+  if (status.state === 'downloading') text = `Baixando a versão ${status.version}… ${status.percent ?? 0}%`;
+  if (status.state === 'ready') text = `Versão ${status.version} pronta para instalar.`;
+  $('update-status').textContent = text;
+
+  const banner = $('update-banner');
+  const action = $('btn-update-action');
+  const show = status.state === 'ready' || status.state === 'available';
+  banner.hidden = !show;
+  if (!show) return;
+  $('update-banner-text').textContent = status.state === 'ready'
+    ? `Nova versão ${status.version} pronta. Ela será instalada ao fechar o Ponte.`
+    : `Nova versão ${status.version} disponível.`;
+  if (status.state === 'ready') action.textContent = 'Reiniciar e atualizar';
+  else action.textContent = status.mode === 'auto' ? 'Baixar atualização' : 'Baixar';
+  // Nunca reinicia no meio de uma sessão.
+  action.disabled = status.state === 'ready' && inFlow();
+  action.title = action.disabled ? 'Disponível quando a sessão terminar.' : '';
+}
+
+async function onUpdateAction() {
+  const status = updateStatus;
+  if (!status) return;
+  if (status.state === 'ready') {
+    const result = await desktop.installUpdate();
+    if (!result.ok) toast(result.error === 'session_active' ? 'Termine a sessão antes de atualizar.' : 'Não foi possível instalar agora.', 'error');
+  } else if (status.mode === 'auto') {
+    desktop.downloadUpdate();
+  } else {
+    desktop.openReleases();
+  }
+}
 
 renderCaptureSupport();
 renderTechPermissions();

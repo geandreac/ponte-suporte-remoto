@@ -16,6 +16,13 @@
 | `AUDIT_LOG_FILE` | stdout | Arquivo do log de auditoria (criado com permissão 600) |
 | `INVITE_TTL_SECONDS`, `JOIN_REQUEST_TTL_SECONDS`, `RECONNECT_GRACE_SECONDS`, `MAX_SESSION_MINUTES`, `MAX_FAILED_ATTEMPTS` | 600, 120, 30, 240, 5 | Prazos e limites |
 
+## Rede local (sem servidor)
+
+O app de computador conecta máquinas no mesmo Wi-Fi/roteador sem nenhum servidor. Requisitos:
+- Firewall: permitir o Ponte em redes **privadas** (o Windows pergunta na 1ª vez). Portas usadas
+  só durante convites/sessões: **UDP 47800** (descoberta) e uma porta TCP aleatória (TLS).
+- O roteador não pode isolar os clientes do Wi-Fi (comum em redes de visitantes).
+
 ## Docker
 
 ```bash

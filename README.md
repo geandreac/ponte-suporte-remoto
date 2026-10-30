@@ -30,22 +30,43 @@ Os instaladores são gerados pelo GitHub Actions (workflow **Executáveis**) sem
 4. Durante a sessão: faixa vermelha permanente indica o compartilhamento; dá para pausar,
    revogar permissões e encerrar a qualquer momento. Os dois conferem o **código de verificação**.
 
-### Servidor de conexão
+### Conexão entre computadores
 
-O app precisa de um servidor de sinalização para que os dois computadores se encontrem
-(tela, chat e arquivos **não passam** por ele: vão direto, cifrados).
+- **Rede local (padrão)**: computadores no mesmo Wi-Fi/roteador se encontram sozinhos pelo ID e
+  código, sem servidor externo. O computador de quem gera o convite só fica visível na rede
+  enquanto o convite ou a sessão existir. Na 1ª vez, o **Firewall do Windows** pergunta se o
+  Ponte pode usar a rede: permita em **Redes privadas**. Se a busca não achar, informe o endereço
+  que aparece na tela do convite ("Na rede local: 192.168.…").
+- **Servidor da organização**: para redes diferentes (casa ↔ escritório, 4G), publique o servidor
+  com HTTPS ([docs/IMPLANTACAO.md](docs/IMPLANTACAO.md), inclui Dockerfile) e informe o endereço
+  em **Ajustes** nos dois computadores.
 
-- **Neste computador** (padrão): o app sobe um servidor interno, acessível só na própria máquina.
-  Serve para experimentar com duas janelas (**Arquivo › Nova janela**).
-- **Servidor da organização**: para conectar computadores diferentes, publique o servidor com
-  HTTPS ([docs/IMPLANTACAO.md](docs/IMPLANTACAO.md), inclui Dockerfile) e informe o endereço em
-  **Ajustes** nos dois computadores.
+### Controle remoto
+
+Quem presta suporte pede **Controlar teclado e mouse**; quem recebe ajuda libera (desligado por
+padrão, com confirmação explícita). Funciona quando quem recebe ajuda usa o **app de computador**
+e compartilha a **tela inteira**. Durante o controle, uma faixa vermelha fica sempre por cima de
+tudo com o botão **Parar controle**, e o atalho **Ctrl+Alt+Shift+X** (⌘⌥⇧X no Mac) retoma o
+controle na hora. Pausar o compartilhamento também suspende o controle.
+
+- macOS: permita o Ponte em **Ajustes do Sistema › Privacidade e Segurança › Acessibilidade**.
+- Linux: requer sessão X11 (Xorg); no Wayland o controle fica indisponível.
+
+### Atualização automática
+
+A partir da 0.2.0, o app procura novas versões ao abrir e a cada 6 horas. No **Windows
+(instalador)** e no **Linux (AppImage)**, baixa em segundo plano e instala ao fechar (ou na hora,
+pelo botão **Reiniciar e atualizar**, nunca durante uma sessão). No macOS, no Windows portátil e no
+.deb, avisa e abre a página de download. Dá para desligar em **Ajustes › Atualizações**.
 
 ## O que está implementado
 
 | Recurso | Situação |
 |---|---|
 | App de computador (Electron) com menus nativos, seletor próprio de tela/janela e Ajustes | ✅ |
+| Conexão na rede local sem servidor externo (descoberta autenticada + TLS) | ✅ |
+| Controle de teclado e mouse (app de computador), com consentimento, aviso sempre visível e atalho para retomar | ✅ |
+| Atualização automática pelas Releases do GitHub (Windows instalador e AppImage) | ✅ |
 | Versão web (mesma interface), responsiva para celular | ✅ |
 | Convite: ID de 9 dígitos + código de 8 caracteres, uso único, expira em 10 min | ✅ |
 | Aprovação mostra nome (marcado como não verificado), permissões pedidas e aviso contra golpes | ✅ |
@@ -55,7 +76,6 @@ O app precisa de um servidor de sinalização para que os dois computadores se e
 | Arquivos com aceite dos dois lados, lista de tipos, 25 MB, verificação de conteúdo e SHA-256 | ✅ |
 | Gravação local opcional com consentimento e indicador contínuo | ✅ |
 | Histórico local e log de auditoria sem conteúdo sensível; limite de tentativas | ✅ |
-| **Controle de teclado e mouse** | ⛔ Não implementado (exige injeção de entrada no sistema; ver [proposta](docs/ARQUITETURA.md#controle-remoto)) |
 | **Acesso não assistido** | ⛔ Não implementado, de propósito ([proposta](docs/ARQUITETURA.md#acesso-não-assistido)) |
 | Assinatura digital dos instaladores | ⛔ Requer certificados pagos (Apple Developer, Authenticode) |
 
@@ -91,7 +111,7 @@ Gera o instalador do sistema atual em `dist/` (`dist:linux`, `dist:win`, `dist:m
 npm test
 ```
 
-64 testes unitários e de integração (servidor real + WebSocket): permissões, consentimento,
+81 testes unitários e de integração (servidor real + WebSocket): permissões, consentimento,
 expiração, bloqueio por tentativas, retomada, encerramento, protocolo, log sem segredos, TURN,
 arquivos e ajustes do app.
 
@@ -106,8 +126,8 @@ npm run test:e2e
 xvfb-run -a -s "-screen 0 1280x800x24" npm run test:desktop
 ```
 
-8 etapas no **app Electron real**: duas janelas, seletor de tela, isolamento de segurança,
-Ajustes. Com `PONTE_EXECUTABLE=dist/linux-unpacked/ponte` testa o executável empacotado.
+15 etapas no **app Electron real**: duas janelas, seletor de tela, isolamento de segurança,
+Ajustes, rede local (descoberta UDP + TLS validado) e controle remoto movendo o mouse real. Com `PONTE_EXECUTABLE=dist/linux-unpacked/ponte` testa o executável empacotado.
 No Windows/macOS, rode sem o `xvfb-run`.
 
 ## Estrutura
@@ -127,13 +147,15 @@ build/    ícone e recursos do instalador     .github/workflows/  CI e geração
 
 ## Limitações
 
-- **Controle remoto e acesso não assistido** não existem nesta versão. A permissão de controle
-  aparece como "indisponível" em vez de simular.
+- **Acesso não assistido** não existe. **Controle remoto** só no app de computador, com a tela
+  inteira compartilhada; não funciona no Wayland nem na versão web (aparece como indisponível).
+- **Atualização automática** não instala sozinha no macOS (app sem assinatura), no Windows
+  portátil nem no .deb: nesses casos o app avisa e abre a página de download.
 - **Identidade de quem presta suporte não é verificada**: o nome é informado pela própria pessoa
   (a interface avisa). Contas autenticadas são o próximo passo para uso real.
 - **Instaladores sem assinatura digital**: Windows e macOS exibem avisos de segurança.
-- **Conectar computadores diferentes exige servidor com HTTPS**; redes com NAT restritivo exigem
-  também um servidor TURN.
+- **Redes diferentes exigem servidor com HTTPS**; redes com NAT restritivo exigem também TURN.
+  Na rede local, Wi-Fi com "isolamento de clientes" (comum em redes de visitantes) impede a conexão.
 - **Estado do servidor em memória**: reiniciar encerra as sessões.
 - **Gravação** fica no dispositivo de quem presta suporte; um cliente modificado poderia gravar sem
   avisar (como qualquer pessoa pode filmar a tela que vê).

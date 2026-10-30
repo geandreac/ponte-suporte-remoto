@@ -92,6 +92,11 @@ tela, alvos de 44 px em toque.
 - No macOS 15+, a escolha da tela usa o **seletor do próprio sistema**; nos demais, o seletor do app
   lista telas e janelas reais.
 - Fechar a janela durante uma sessão abre a confirmação nativa do sistema.
+- Controle remoto: faixa vermelha própria, sempre por cima de todas as janelas, com texto e botão
+  "Parar controle" e o atalho exibido. No app do técnico, o botão "Controlar" tem estado
+  pressionado (`aria-pressed`) e a tela remota ganha contorno de destaque enquanto captura.
+- Atualização: faixa discreta no topo ("Nova versão pronta"), com ação clara e sem reiniciar
+  durante uma sessão.
 
 ## Checklist de revisão de tela
 

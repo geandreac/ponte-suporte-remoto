@@ -44,3 +44,23 @@ test('formatação para exibição', () => {
   assert.equal(formatSessionId('123456789'), '123 456 789');
   assert.equal(formatSecret('ABCDEFGH'), 'ABCD-EFGH');
 });
+
+test('coordenadas do controle remoto descontam as faixas pretas do vídeo', async () => {
+  const { contentRect, normalizePoint } = await import('../public/js/remote-input.js');
+  // Vídeo 1920x1080 num quadro 1000x800: imagem de 1000x562,5 centralizada na vertical.
+  const r = contentRect({ left: 0, top: 0, width: 1000, height: 800 }, 1920, 1080);
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} ≈ ${b}`);
+  near(r.width, 1000);
+  near(r.top, (800 - 562.5) / 2);
+  const mid = normalizePoint(r, 500, 400);
+  near(mid.x, 0.5);
+  near(mid.y, 0.5);
+  assert.equal(normalizePoint(r, 500, 50), null, 'faixa preta não gera clique');
+  assert.deepEqual(normalizePoint(r, 1200, 50, { clamp: true }), { x: 1, y: 0 });
+  assert.equal(contentRect({ left: 0, top: 0, width: 10, height: 10 }, 0, 0), null);
+});
+
+test('share-state informa se o controle está ativo', () => {
+  assert.equal(validateDataMessage({ type: 'share-state', paused: false, controlActive: true }).value.controlActive, true);
+  assert.equal(validateDataMessage({ type: 'share-state', paused: false, controlActive: 'sim' }).value.controlActive, false);
+});

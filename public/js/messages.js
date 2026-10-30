@@ -13,6 +13,11 @@ const ERRORS = {
   not_active: 'A sessão não está ativa.',
   invalid_message: 'Mensagem inválida.',
   capture_cancelled: 'Você não escolheu o que compartilhar.',
+  lan_not_found: 'Não encontramos esse convite na sua rede. Confira o ID e o código, se os dois aparelhos estão no mesmo Wi-Fi e se o Ponte foi liberado no firewall do outro computador. Você também pode informar o endereço dele abaixo.',
+  lan_not_found_address: 'Não encontramos o convite nesse endereço. Confira o endereço, o ID e o código, e se o firewall do outro computador libera o Ponte.',
+  control_no_target: 'Para liberar o controle, compartilhe a tela inteira (não uma janela).',
+  control_accessibility: 'Permita o Ponte em Ajustes do Sistema › Privacidade e Segurança › Acessibilidade e ligue o controle de novo.',
+  control_unavailable: 'O controle remoto não está disponível neste computador.',
 };
 
 export function errorMessage(code) {

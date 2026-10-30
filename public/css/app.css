@@ -481,6 +481,21 @@ main { flex: 1; outline: none; }
 .event-log li[data-kind="warn"] { color: var(--c-warning); }
 .event-log li[data-kind="error"] { color: var(--c-destructive); }
 
+/* Controle remoto: a tela remota recebe o foco e mostra que está capturando */
+.stage.controlling { cursor: crosshair; outline: 3px solid var(--c-accent); outline-offset: 2px; touch-action: none; }
+.btn[aria-pressed="true"] { background: var(--c-accent); color: var(--c-on-accent); }
+
+/* Faixa de atualização */
+.update-banner {
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  padding: var(--space-2) var(--space-5); background: var(--c-info-soft); font-size: var(--text-footnote); font-weight: 600;
+}
+.update-banner span { flex: 1; min-width: 12rem; }
+.btn-small { min-height: 1.875rem; padding: 0 var(--space-3); font-size: var(--text-footnote); }
+.lan-address { margin-top: var(--space-3); }
+.lan-address summary { margin-left: var(--space-4); }
+.lan-address .group { margin-top: var(--space-2); }
+
 /* Fim de sessão */
 .result-icon {
   display: grid; place-items: center; width: 3.5rem; height: 3.5rem; border-radius: 50%;

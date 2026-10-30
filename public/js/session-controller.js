@@ -255,11 +255,16 @@ export class HostController extends SessionController {
   pendingRequest = null;
   peerRecording = false;
   invite = null;
+  controllable = false; // a tela compartilhada é uma tela inteira que o app consegue controlar
+  controlActive = false;
   #restartTimer = null;
+  #controlSync = Promise.resolve();
 
-  constructor({ signaling }) {
+  // `platform`: integração com o app de computador (controle remoto). Ausente na versão web.
+  constructor({ signaling, platform = null }) {
     super({ role: 'host', signaling });
-    this.capabilities = { screenCapture: canCaptureScreen(), inputInjection: false };
+    this.platform = platform;
+    this.capabilities = { screenCapture: canCaptureScreen(), inputInjection: Boolean(platform?.inputInjection) };
   }
 
   async start(name) {
@@ -393,10 +398,51 @@ export class HostController extends SessionController {
     await this.link?.setVideoTrack(track);
     this._sendShareState();
     this._emit('share', { sharing: this.sharing, paused: this.paused, captureActive: Boolean(this.capture) });
+    this._syncControl();
   }
 
   _sendShareState() {
-    this.link?.sendJson({ type: 'share-state', paused: !this.sharing, captureActive: Boolean(this.capture) });
+    this.link?.sendJson({
+      type: 'share-state', paused: !this.sharing, captureActive: Boolean(this.capture), controlActive: this.controlActive,
+    });
+  }
+
+  // O controle só fica ativo com tudo verdadeiro ao mesmo tempo: permissão concedida, tela
+  // inteira sendo enviada (não pausada) e sessão conectada. Qualquer mudança reavalia.
+  _syncControl() {
+    this.#controlSync = this.#controlSync.then(async () => {
+      if (!this.platform) return;
+      const want = this.can('control') && this.sharing && this.controllable && isActiveState(this.state);
+      if (want === this.controlActive) return;
+      if (want) {
+        const result = await this.platform.setControlActive(true, this.peerName);
+        if (result !== 'ok') {
+          this._emit('notice', { code: `control_${result}` });
+          return;
+        }
+        this.controlActive = true;
+        this._log(`${this.peerName} pode controlar seu teclado e mouse.`, 'warn');
+      } else {
+        this.controlActive = false;
+        await this.platform.setControlActive(false);
+        this._log('Controle remoto desativado.');
+      }
+      this._sendShareState();
+      this._emit('control', { active: this.controlActive });
+    });
+    return this.#controlSync;
+  }
+
+  // Avisos vindos do app de computador.
+  setCaptureControllable(controllable) {
+    this.controllable = controllable;
+    this._syncControl();
+  }
+
+  onControlRevoked() {
+    if (!this.can('control')) return;
+    this._log('Você retomou o controle do computador.');
+    this.setPermissions({ ...this.granted, control: false });
   }
 
   _onChannelOpen() {
@@ -440,6 +486,10 @@ export class HostController extends SessionController {
   }
 
   _handleData(msg) {
+    if (msg.type === 'input') {
+      if (this.controlActive) this.platform.injectInput(msg);
+      return;
+    }
     if (msg.type !== 'recording-state') return;
     if (msg.active && !this.can('record')) {
       // O cliente oficial nunca faz isso; se acontecer, o outro lado foi modificado.
@@ -485,6 +535,10 @@ export class HostController extends SessionController {
   _cleanupMedia() {
     clearInterval(this.#restartTimer);
     this.#restartTimer = null;
+    if (this.controlActive || this.platform) {
+      this.controlActive = false;
+      this.platform?.setControlActive(false);
+    }
     this._stopCapture();
     this.pendingRequest = null;
     this.peerRecording = false;
@@ -494,6 +548,7 @@ export class HostController extends SessionController {
 export class ViewerController extends SessionController {
   remoteStream = null;
   hostPaused = true;
+  hostControlActive = false;
   hostName = '';
   recorder = new SessionRecorder();
 
@@ -575,7 +630,18 @@ export class ViewerController extends SessionController {
   _handleData(msg) {
     if (msg.type !== 'share-state') return;
     this.hostPaused = msg.paused;
-    this._emit('share', { paused: msg.paused, captureActive: msg.captureActive });
+    this.hostControlActive = msg.controlActive;
+    this._emit('share', { paused: msg.paused, captureActive: msg.captureActive, controlActive: msg.controlActive });
+  }
+
+  get canControl() {
+    return this.can('control') && this.hostControlActive && !this.hostPaused;
+  }
+
+  // Envia um evento de teclado/mouse. O lado de quem compartilha valida e decide de novo.
+  sendInput(msg) {
+    if (!this.canControl || !this.link?.channelOpen) return false;
+    return this.link.sendJson({ type: 'input', ...msg });
   }
 
   _applyPermissions(next, requested) {

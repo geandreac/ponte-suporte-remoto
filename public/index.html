@@ -38,6 +38,7 @@
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
       <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/></symbol>
       <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+      <symbol id="i-pointer" viewBox="0 0 24 24"><path d="M6 3.5l12 7.2-5.3 1.4 3 6.1-2.4 1.2-3-6.1L6 17.2z"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></symbol>
     </defs>
   </svg>
@@ -67,6 +68,11 @@
     </aside>
 
     <div class="main-column">
+      <div id="update-banner" class="update-banner" hidden role="status" aria-live="polite">
+        <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>
+        <span id="update-banner-text"></span>
+        <button type="button" class="btn btn-small" id="btn-update-action"></button>
+      </div>
       <!-- Indicador permanente durante a sessão. Cada item tem ícone e texto (não depende só da cor). -->
       <div id="session-banner" class="session-banner" hidden role="status" aria-live="polite">
         <span class="banner-item"><svg class="icon" aria-hidden="true"><use href="#i-share"/></svg><span id="banner-share"></span></span>
@@ -129,6 +135,17 @@
               </div>
               <p class="field-error" id="err-session"></p>
               <p class="field-error" id="err-secret"></p>
+              <details class="disclosure lan-address" id="lan-address-box" hidden>
+                <summary>Não encontrou? Informe o endereço do outro computador</summary>
+                <div class="group">
+                  <label class="group-row field" for="tech-address">
+                    <span class="field-label">Endereço na rede</span>
+                    <input id="tech-address" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.0.10" aria-describedby="err-address tech-address-hint">
+                  </label>
+                </div>
+                <p class="group-footer" id="tech-address-hint">Aparece na tela de convite do outro computador, em "Na rede local".</p>
+                <p class="field-error" id="err-address"></p>
+              </details>
 
               <h2 class="section-title">Você</h2>
               <div class="group">
@@ -174,7 +191,7 @@
               <div class="group" role="radiogroup" aria-labelledby="server-title">
                 <label class="group-row choice" for="mode-local">
                   <input type="radio" id="mode-local" name="mode" value="local">
-                  <span class="choice-text"><span class="row-title">Neste computador</span><span class="row-hint">Para testar com duas janelas no mesmo computador (Arquivo › Nova janela). Não aceita conexões de outros computadores.</span></span>
+                  <span class="choice-text"><span class="row-title">Rede local (recomendado)</span><span class="row-hint">Conecta computadores no mesmo Wi-Fi ou rede, sem servidor externo. Seu computador só fica visível na rede enquanto houver um convite ou sessão sua.</span></span>
                 </label>
                 <label class="group-row choice" for="mode-remote">
                   <input type="radio" id="mode-remote" name="mode" value="remote">
@@ -191,6 +208,22 @@
                 <button type="submit" class="btn btn-primary">Salvar e reiniciar</button>
               </div>
             </form>
+            <h2 class="section-title" id="updates-title">Atualizações</h2>
+            <div class="group" role="group" aria-labelledby="updates-title">
+              <label class="group-row perm-row" for="auto-update">
+                <span class="row-text"><span class="row-title">Atualizar automaticamente</span><span class="row-hint" id="auto-update-hint">Baixa novas versões em segundo plano e instala ao fechar o app.</span></span>
+                <input type="checkbox" role="switch" class="switch" id="auto-update" aria-describedby="auto-update-hint">
+              </label>
+              <div class="group-row"><span class="row-text"><span class="row-title">Situação</span><span class="row-hint" id="update-status" aria-live="polite"></span></span>
+                <button type="button" class="btn" id="btn-update-check">Procurar agora</button>
+              </div>
+            </div>
+
+            <h2 class="section-title">Controle remoto</h2>
+            <div class="group">
+              <div class="group-row"><span class="row-text"><span class="row-title">Neste computador</span><span class="row-hint" id="control-support"></span></span></div>
+            </div>
+
             <h2 class="section-title">Sobre</h2>
             <div class="group">
               <div class="group-row"><span class="row-title">Versão</span><span id="app-version" class="row-trailing"></span></div>
@@ -210,6 +243,7 @@
           </header>
           <div class="content content-narrow">
             <p class="status-row" data-kind="waiting"><span class="activity" aria-hidden="true"></span><span>Aguardando a pessoa se conectar · expira em <strong id="invite-countdown">--:--</strong></span></p>
+            <p class="status-row" id="invite-lan" hidden></p>
             <dl class="code-card">
               <div class="code-cell"><dt>ID da sessão</dt><dd id="invite-id" class="code-value"></dd></div>
               <div class="code-cell"><dt>Código de acesso</dt><dd id="invite-secret" class="code-value"></dd></div>
@@ -243,6 +277,7 @@
             <div class="toolbar-actions">
               <button id="btn-pause" type="button" class="btn" data-for="host"><svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg><span class="btn-text">Pausar</span></button>
               <button id="btn-share-again" type="button" class="btn" data-for="host" hidden><svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>Compartilhar de novo</button>
+              <button id="btn-control" type="button" class="btn" data-for="viewer" aria-pressed="false" disabled><svg class="icon" aria-hidden="true"><use href="#i-pointer"/></svg><span class="btn-text">Controlar</span></button>
               <button id="btn-record" type="button" class="btn" data-for="viewer"><svg class="icon" aria-hidden="true"><use href="#i-record"/></svg><span class="btn-text">Gravar</span></button>
               <button id="btn-fullscreen" type="button" class="btn" data-for="viewer"><svg class="icon" aria-hidden="true"><use href="#i-expand"/></svg>Tela cheia</button>
               <button id="btn-end" type="button" class="btn btn-destructive"><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>Encerrar sessão</button>

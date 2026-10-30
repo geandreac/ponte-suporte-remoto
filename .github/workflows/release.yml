@@ -43,12 +43,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ponte-${{ runner.os }}
+          # latest*.yml e .blockmap são usados pela atualização automática (versão + SHA-512).
           path: |
             dist/*.exe
             dist/*.dmg
             dist/*.zip
             dist/*.AppImage
             dist/*.deb
+            dist/latest*.yml
+            dist/*.blockmap
           if-no-files-found: error
 
   release:
@@ -70,9 +73,12 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
           name: Ponte ${{ steps.version.outputs.tag }}
-          prerelease: true
+          # Precisa ser uma release normal: a atualização automática ignora pré-lançamentos.
+          prerelease: false
+          make_latest: true
           files: artifacts/*
           generate_release_notes: true
           body: |
             Instaladores do Ponte (sem assinatura digital — veja o README para abrir no Windows e no macOS).
-            Para conectar computadores diferentes é preciso um servidor de conexão com HTTPS (docs/IMPLANTACAO.md).
+            Computadores no mesmo Wi-Fi se conectam direto (modo Rede local). Para redes diferentes, veja docs/IMPLANTACAO.md.
+            A partir da 0.2.0, o app instalado (Windows/AppImage) se atualiza sozinho; macOS, portátil e .deb avisam e abrem esta página.

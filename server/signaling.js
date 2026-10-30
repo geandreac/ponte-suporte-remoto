@@ -55,7 +55,9 @@ export function attachSignaling({ server, store, ice, audit, config, now = Date.
     Object.entries(limitSpec).map(([name, spec]) => [name, createRateLimiter({ ...spec, now })]),
   );
 
-  server.on('upgrade', (req, socket, head) => {
+  // Mesmo estado (sessões e salas) atendendo mais de um servidor HTTP: no app de computador,
+  // o servidor local (127.0.0.1) e o da rede local (TLS) compartilham as sessões.
+  const onUpgrade = (req, socket, head) => {
     const { pathname } = new URL(req.url ?? '/', 'http://localhost');
     const ip = clientIp(req, config.trustProxy);
     const reject = (status) => {
@@ -69,7 +71,8 @@ export function attachSignaling({ server, store, ice, audit, config, now = Date.
     }
     if (!limits.upgrade.take(ip)) return reject('429 Too Many Requests');
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req, ip));
-  });
+  };
+  server.on('upgrade', onUpgrade);
 
   const send = (conn, type, data = {}) => {
     if (conn?.ws.readyState === WebSocket.OPEN) conn.ws.send(JSON.stringify({ type, ...data }));
@@ -328,6 +331,9 @@ export function attachSignaling({ server, store, ice, audit, config, now = Date.
 
   return {
     wss,
+    attach(extraServer) {
+      extraServer.on('upgrade', onUpgrade);
+    },
     close() {
       clearInterval(heartbeat);
       clearInterval(sweeper);

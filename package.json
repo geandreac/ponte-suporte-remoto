@@ -1,6 +1,6 @@
 {
   "name": "ponte-suporte-remoto",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Suporte remoto assistido: convite com consentimento, WebRTC ponta a ponta e permissões granulares.",
   "type": "module",
@@ -21,6 +21,9 @@
     "dist:mac": "electron-builder --mac --publish never"
   },
   "dependencies": {
+    "@jitsi/robotjs": "0.6.24",
+    "electron-updater": "6.8.10",
+    "selfsigned": "5.5.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
@@ -88,7 +91,19 @@
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "geandreac",
+        "repo": "ponte-suporte-remoto",
+        "releaseType": "release"
+      }
+    ],
+    "npmRebuild": false,
+    "asarUnpack": [
+      "node_modules/@jitsi/robotjs/**"
+    ]
   },
   "desktopName": "ponte.desktop"
 }
