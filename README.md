@@ -19,7 +19,7 @@ Os instaladores ficam na página **Releases** do repositório:
 | macOS | `Ponte-x.y.z-mac-*.dmg` | Sem assinatura/notarização: abra com **clique direito › Abrir**. Na 1ª captura, permita em **Ajustes do Sistema › Privacidade e Segurança › Gravação de Tela**. |
 | Linux | `Ponte-x.y.z-linux-x86_64.AppImage` ou `…-linux-amd64.deb` | AppImage: `chmod +x` e execute. Debian/Ubuntu: `sudo apt install ./arquivo.deb`. |
 
-Os instaladores são gerados pelo GitHub Actions (workflow **Executáveis**) a cada tag `vX.Y.Z`.
+Os instaladores são gerados pelo GitHub Actions (workflow **Executáveis**) sempre que a versão do `package.json` muda na `main`.
 
 ## Como usar
 

@@ -1,12 +1,14 @@
 name: Executáveis
 
-# Gera os instaladores para Windows, macOS e Linux.
-# - Manualmente: aba Actions > Executáveis > Run workflow (os arquivos ficam como artefatos).
-# - Ao enviar uma tag vX.Y.Z: além dos artefatos, cria uma Release com os instaladores.
+# Gera os instaladores para Windows, macOS e Linux e publica uma Release "v<versão do package.json>".
+# Dispara quando a versão (package.json) ou este workflow mudam na main, ao enviar uma tag vX.Y.Z,
+# ou manualmente (aba Actions > Executáveis > Run workflow). A tag é criada pelo próprio GitHub.
 
 on:
   workflow_dispatch:
   push:
+    branches: [main]
+    paths: ['package.json', '.github/workflows/release.yml']
     tags: ['v*']
 
 permissions:
@@ -50,18 +52,25 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - name: Versão
+        id: version
+        run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Ponte ${{ steps.version.outputs.tag }}
+          prerelease: true
           files: artifacts/*
           generate_release_notes: true
           body: |
