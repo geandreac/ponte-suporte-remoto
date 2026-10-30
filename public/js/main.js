@@ -1,4 +1,4 @@
-// Interface: liga os elementos da página aos controladores de sessão.
+// Interface: navegação, formulários e ligação da tela de sessão aos controladores.
 
 import { clearHistory, loadHistory } from './history.js';
 import { endMessage, errorMessage, STATE_TEXT } from './messages.js';
@@ -6,8 +6,8 @@ import { SessionRecorder } from './recorder.js';
 import { canCaptureScreen, HostController, ViewerController } from './session-controller.js';
 import { SignalingClient } from './signaling-client.js';
 import {
-  $, confirmDialog, countdown, el, formatSize, formatTime, readPermissionChoices,
-  renderPermissionChoices, showView, toast,
+  $, closeDialog, confirmDialog, countdown, currentView, el, formatSize, formatTime, icon, openDialog,
+  readPermissionChoices, renderPermissionChoices, setBusy, setupTabs, showView, toast,
 } from './ui.js';
 import { ACCEPT_ATTRIBUTE, FILE_ERROR_MESSAGES } from '../../shared/file-policy.js';
 import { capabilityAllows, PERMISSION_HINTS, PERMISSION_LABELS, PERMISSIONS } from '../../shared/permissions.js';
@@ -15,7 +15,9 @@ import {
   formatSecret, formatSessionId, normalizeSecret, normalizeSessionId, sanitizeName, SECRET_PATTERN, SESSION_ID_PATTERN,
 } from '../../shared/protocol.js';
 
-const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+// No app de computador, o preload informa o servidor configurado. No navegador, é o próprio site.
+const desktop = window.ponteDesktop ?? null;
+const wsUrl = desktop?.signalingUrl ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
 const signaling = new SignalingClient(wsUrl);
 
 let controller = null;
@@ -23,106 +25,241 @@ let stopCountdown = () => {};
 let stopDialogCountdown = () => {};
 const objectUrls = new Set();
 const BASE_TITLE = document.title;
+const FLOW_VIEWS = new Set(['view-invite', 'view-pending', 'view-session']);
 
-/* ---------- Estado do servidor ---------- */
+/* ================= Navegação ================= */
+
+const ROUTES = { receber: 'view-host', prestar: 'view-tech', historico: 'view-history', ajustes: 'view-settings', sessao: null };
+const NAV_FOR_VIEW = {
+  'view-host': 'host', 'view-tech': 'tech', 'view-history': 'history', 'view-settings': 'settings',
+  'view-invite': 'session', 'view-pending': 'session', 'view-session': 'session', 'view-ended': null,
+};
+
+function inFlow() {
+  return Boolean(controller && !['idle', 'ended', 'failed'].includes(controller.state));
+}
+
+function syncNav() {
+  const flow = inFlow();
+  document.body.dataset.flow = flow ? 'active' : 'idle';
+  $('nav-session').hidden = !flow;
+  const active = NAV_FOR_VIEW[currentView()];
+  for (const a of document.querySelectorAll('.nav-item')) {
+    const key = a.dataset.nav;
+    if (key === active) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+    // Durante uma sessão a navegação fica presa a ela: uma tarefa por vez.
+    const locked = flow && key !== 'session';
+    a.setAttribute('aria-disabled', String(locked));
+    a.tabIndex = locked ? -1 : 0;
+  }
+}
+
+function go(viewId, options) {
+  showView(viewId, options);
+  syncNav();
+}
+
+function route() {
+  if (inFlow()) return syncNav();
+  const key = location.hash.slice(1);
+  const view = ROUTES[key] ?? 'view-host';
+  if (view === 'view-settings' && !desktop) return go('view-host', { focus: false });
+  if (view === 'view-history') renderHistory();
+  go(view, { focus: Boolean(key) });
+}
+window.addEventListener('hashchange', route);
+
+/* ================= Servidor ================= */
 
 const SIGNAL_TEXT = {
-  online: 'Servidor: conectado',
-  connecting: 'Servidor: conectando…',
-  reconnecting: 'Servidor: reconectando…',
-  offline: 'Servidor: desconectado',
+  online: 'Servidor conectado',
+  connecting: 'Conectando ao servidor…',
+  reconnecting: 'Reconectando ao servidor…',
+  offline: 'Servidor desconectado',
 };
 signaling.addEventListener('status', (e) => {
   $('signal-status').dataset.status = e.detail;
-  $('signal-status').querySelector('.pill-text').textContent = SIGNAL_TEXT[e.detail];
+  $('signal-status').querySelector('.status-text').textContent = SIGNAL_TEXT[e.detail];
 });
 
-/* ---------- Tela inicial ---------- */
+/* ================= Receber suporte ================= */
 
-function renderHome() {
-  $('capture-support').textContent = canCaptureScreen()
-    ? 'Seu navegador permite compartilhar a tela.'
-    : (window.isSecureContext
-      ? 'Este navegador não permite compartilhar a tela (comum em celulares). Você ainda pode usar chat e arquivos.'
-      : 'Compartilhar a tela exige conexão segura (HTTPS). Peça ao administrador para ativar HTTPS.');
-
-  renderPermissionChoices($('tech-perms'), {
-    name: 'req',
-    options: {
-      view: { checked: true },
-      chat: { checked: true },
-      control: { hint: 'Depende do agente nativo no outro dispositivo; a versão web não oferece.' },
-    },
-  });
-  renderHistory();
+function renderCaptureSupport() {
+  const row = $('capture-support');
+  row.replaceChildren();
+  let kind = 'ok';
+  let text = 'Este dispositivo pode compartilhar a tela.';
+  if (!canCaptureScreen()) {
+    kind = 'warning';
+    text = window.isSecureContext
+      ? 'Este navegador não compartilha a tela (comum em celulares). Chat e arquivos continuam disponíveis.'
+      : 'Compartilhar a tela exige conexão segura (HTTPS).';
+  }
+  row.dataset.kind = kind;
+  row.append(icon(kind === 'ok' ? 'check' : 'warning'), el('span', {}, text));
 }
 
-function renderHistory() {
-  const list = $('history-list');
-  const items = loadHistory();
-  list.replaceChildren();
-  if (!items.length) {
-    list.append(el('li', { className: 'empty' }, 'Nenhuma sessão ainda.'));
-    return;
-  }
-  for (const h of items) {
-    const mins = Math.max(1, Math.round((h.endedAt - h.startedAt) / 60000));
-    const who = h.role === 'host' ? `Suporte recebido de ${h.peerName || '—'}` : `Suporte prestado a ${h.peerName || '—'}`;
-    const perms = h.permissions.map((p) => PERMISSION_LABELS[p] ?? p).join(', ') || 'sem permissões';
-    list.append(el('li', {}, [
-      el('span', {}, who),
-      el('span', { className: 'muted' }, `${new Date(h.startedAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })} · ${mins} min · ${perms}`),
-    ]));
-  }
-}
-
-$('btn-clear-history').addEventListener('click', () => {
-  clearHistory();
-  renderHistory();
-});
-
-function showHomeError(text) {
+function showHostError(text) {
   $('home-error').textContent = text;
   $('home-error').hidden = !text;
 }
 
 $('form-host').addEventListener('submit', (e) => {
   e.preventDefault();
-  showHomeError('');
+  showHostError('');
+  setBusy($('btn-create-invite'), true, 'Gerando convite…');
   const host = new HostController({ signaling });
   useController(host);
   host.start(sanitizeName($('host-name').value));
 });
 
+/* ================= Prestar suporte ================= */
+
+function renderTechPermissions() {
+  renderPermissionChoices($('tech-perms'), {
+    name: 'req',
+    options: {
+      view: { checked: true },
+      chat: { checked: true },
+      control: { disabled: true, hint: 'Ainda não disponível: exige um agente de controle instalado no outro computador.' },
+    },
+  });
+}
+
+function setFieldError(input, errorEl, message) {
+  input.setAttribute('aria-invalid', String(Boolean(message)));
+  errorEl.textContent = message;
+}
+
+function showTechError(text) {
+  $('tech-form-error').textContent = text;
+  $('tech-form-error').hidden = !text;
+}
+
 $('form-tech').addEventListener('submit', (e) => {
   e.preventDefault();
-  showHomeError('');
+  showTechError('');
   const sessionId = normalizeSessionId($('tech-session').value);
   const secret = normalizeSecret($('tech-secret').value);
   const name = sanitizeName($('tech-name').value);
   const requested = readPermissionChoices($('tech-perms'));
-  const problems = [
-    [$('tech-session'), !SESSION_ID_PATTERN.test(sessionId), 'O ID tem 9 números.'],
-    [$('tech-secret'), !SECRET_PATTERN.test(secret), 'O código tem 8 letras/números (sem 0, 1, I, L ou O).'],
-    [$('tech-name'), !name, 'Informe seu nome.'],
+  const checks = [
+    [$('tech-session'), $('err-session'), SESSION_ID_PATTERN.test(sessionId) ? '' : 'Digite os 9 números do ID da sessão.'],
+    [$('tech-secret'), $('err-secret'), SECRET_PATTERN.test(secret) ? '' : 'O código tem 8 letras e números. Não usa 0, 1, I, L nem O.'],
+    [$('tech-name'), $('err-name'), name ? '' : 'Digite seu nome para a pessoa saber quem está pedindo acesso.'],
   ];
-  let message = '';
-  for (const [input, bad, text] of problems) {
-    input.setAttribute('aria-invalid', String(bad));
-    if (bad && !message) {
-      message = text;
-      input.focus();
-    }
+  let firstInvalid = null;
+  for (const [input, err, msg] of checks) {
+    setFieldError(input, err, msg);
+    if (msg && !firstInvalid) firstInvalid = input;
   }
-  if (!message && !Object.values(requested).some(Boolean)) message = errorMessage('no_permissions_requested');
-  $('tech-form-error').textContent = message;
-  if (message) return;
+  if (firstInvalid) return firstInvalid.focus();
+  if (!Object.values(requested).some(Boolean)) return showTechError(errorMessage('no_permissions_requested'));
+  setBusy($('btn-join'), true, 'Enviando pedido…');
   const viewer = new ViewerController({ signaling });
   useController(viewer);
   viewer.join({ sessionId, secret, name, requested });
 });
 
-/* ---------- Ligação com o controlador ---------- */
+/* ================= Histórico ================= */
+
+const END_SHORT = {
+  host_ended: 'Encerrada', tech_ended: 'Encerrada', connection_failed: 'Falha de conexão',
+  host_timeout: 'Conexão perdida', tech_timeout: 'Conexão perdida', max_duration: 'Tempo máximo',
+  policy_violation: 'Encerrada por segurança', signaling_lost: 'Conexão perdida', session_lost: 'Conexão perdida',
+};
+
+function renderHistory() {
+  const list = $('history-list');
+  const items = loadHistory();
+  list.replaceChildren();
+  $('btn-clear-history').disabled = !items.length;
+  if (!items.length) {
+    list.append(el('li', { className: 'history-empty' }, [
+      icon('clock'), el('strong', {}, 'Nenhuma sessão ainda'), el('span', {}, 'As sessões que você fizer aparecem aqui.'),
+    ]));
+    return;
+  }
+  for (const h of items) {
+    const mins = Math.max(1, Math.round((h.endedAt - h.startedAt) / 60000));
+    const who = h.role === 'host' ? `Ajuda de ${h.peerName || '—'}` : `Ajuda para ${h.peerName || '—'}`;
+    const perms = h.permissions.map((p) => PERMISSION_LABELS[p] ?? p).join(', ') || 'Sem permissões';
+    const when = new Date(h.startedAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+    list.append(el('li', { className: 'group-row' }, [
+      el('span', { className: 'row-icon' }, icon(h.role === 'host' ? 'share' : 'support')),
+      el('span', { className: 'row-text' }, [
+        el('span', { className: 'row-title' }, who),
+        el('span', { className: 'row-hint' }, `${when} · ${mins} min · ${perms}`),
+      ]),
+      el('span', { className: 'row-trailing' }, END_SHORT[h.endReason] ?? 'Encerrada'),
+    ]));
+  }
+}
+
+$('btn-clear-history').addEventListener('click', async () => {
+  const ok = await confirmDialog('Limpar histórico?', 'Todas as sessões salvas neste dispositivo serão apagadas.', { confirmLabel: 'Limpar histórico', destructive: true });
+  if (!ok) return;
+  clearHistory();
+  renderHistory();
+  toast('Histórico apagado.');
+});
+
+/* ================= Ajustes (app de computador) ================= */
+
+async function setupDesktop() {
+  if (!desktop) return;
+  for (const n of document.querySelectorAll('[data-desktop-only]')) n.hidden = false;
+  const settings = await desktop.getSettings();
+  $(settings.mode === 'remote' ? 'mode-remote' : 'mode-local').checked = true;
+  $('server-url').value = settings.serverUrl ?? '';
+  $('app-version').textContent = settings.version ?? '';
+  const syncUrlField = () => { $('server-url').disabled = !$('mode-remote').checked; };
+  for (const r of document.querySelectorAll('input[name="mode"]')) r.addEventListener('change', syncUrlField);
+  syncUrlField();
+
+  $('form-settings').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const mode = $('mode-remote').checked ? 'remote' : 'local';
+    const serverUrl = $('server-url').value.trim();
+    const result = await desktop.saveSettings({ mode, serverUrl });
+    setFieldError($('server-url'), $('err-server'), result.ok ? '' : result.error);
+    if (!result.ok) $('server-url').focus();
+  });
+  $('btn-docs').addEventListener('click', () => desktop.openDocs());
+  desktop.onNavigate((key) => {
+    if (key in ROUTES) location.hash = key;
+  });
+
+  // Seletor de tela/janela: o app mostra as opções reais do sistema e a pessoa escolhe.
+  desktop.onSourceRequest(({ requestId, sources }) => {
+    const list = $('source-list');
+    list.replaceChildren();
+    let answered = false;
+    const answer = (sourceId) => {
+      if (answered) return;
+      answered = true;
+      desktop.chooseSource(requestId, sourceId);
+      closeDialog($('dlg-source'));
+    };
+    for (const s of sources) {
+      const card = el('button', { type: 'button', className: 'source-card' }, [
+        el('img', { src: s.thumbnail, alt: '' }),
+        el('span', {}, `${s.kind === 'screen' ? 'Tela' : 'Janela'}: ${s.name}`),
+      ]);
+      card.addEventListener('click', () => answer(s.id));
+      list.append(card);
+    }
+    if (!sources.length) list.append(el('p', { className: 'secondary' }, 'Nenhuma tela disponível. No macOS, permita a gravação de tela em Ajustes do Sistema › Privacidade e Segurança.'));
+    $('btn-source-cancel').onclick = () => answer(null);
+    $('dlg-source').oncancel = (ev) => { ev.preventDefault(); answer(null); };
+    // Um diálogo por vez: a aprovação sai da tela enquanto a pessoa escolhe o que compartilhar.
+    if ($('dlg-approve').open) $('dlg-approve').close();
+    openDialog($('dlg-source'));
+  });
+}
+
+/* ================= Controlador de sessão ================= */
 
 function useController(c) {
   controller?.dispose();
@@ -142,8 +279,12 @@ function useController(c) {
   });
   c.addEventListener('notice', (e) => {
     if (e.detail.code === 'peer_unavailable') return;
-    if (c.state === 'idle') showHomeError(errorMessage(e.detail.code));
-    else toast(errorMessage(e.detail.code), 'error');
+    if (c.state === 'idle') {
+      if (c.role === 'host') showHostError(errorMessage(e.detail.code));
+      else showTechError(errorMessage(e.detail.code));
+    } else {
+      toast(errorMessage(e.detail.code), 'error');
+    }
   });
   c.addEventListener('peer-status', () => updateBanner());
   c.addEventListener('file-incoming', (e) => onFileIncoming(e.detail));
@@ -160,23 +301,29 @@ function useController(c) {
   else bindViewer(c);
 }
 
+const STATE_KIND = { connecting: 'waiting', connected: 'ok', reconnecting: 'warning', failed: 'error' };
+
 function onState(state) {
-  $('conn-status').dataset.state = state;
-  $('conn-status').textContent = STATE_TEXT[state] ?? '';
+  const status = $('conn-status');
+  status.dataset.kind = STATE_KIND[state] ?? 'waiting';
+  status.querySelector('.status-label').textContent = STATE_TEXT[state] ?? '';
+  if (state !== 'creating') setBusy($('btn-create-invite'), false);
+  if (state !== 'joining') setBusy($('btn-join'), false);
+
   if (state === 'idle') {
-    showView('view-home');
-    renderHistory();
+    go(controller?.role === 'viewer' ? 'view-tech' : 'view-host', { focus: false });
   } else if (state === 'waiting') {
-    showView('view-invite');
+    go('view-invite');
   } else if (state === 'awaiting_approval') {
-    showView('view-pending');
+    go('view-pending');
   } else if (state === 'connecting' && $('view-session').hidden) {
     stopCountdown();
-    showView('view-session');
+    go('view-session');
+    tabs.select('tab-perms');
     renderSessionPermissions();
-    updateBanner();
     updateStage();
   }
+  syncNav();
   updateBanner();
 }
 
@@ -193,7 +340,7 @@ function bindHost(c) {
   c.addEventListener('join-request', (e) => openApproveDialog(e.detail));
   c.addEventListener('join-request-closed', (e) => {
     stopDialogCountdown();
-    if ($('dlg-approve').open) $('dlg-approve').close();
+    closeDialog($('dlg-approve'));
     toast(e.detail.reason === 'expired' ? 'O pedido de conexão expirou.' : 'A pessoa desistiu do pedido.');
   });
   c.addEventListener('capture', (e) => {
@@ -204,7 +351,7 @@ function bindHost(c) {
   c.addEventListener('permissions-request', (e) => openPermRequestDialog(e.detail.asked));
 }
 
-function hostPermissionOptions(c, requested) {
+function hostPermissionOptions(c) {
   const options = {};
   for (const p of PERMISSIONS) {
     const supported = capabilityAllows(p, c.capabilities);
@@ -212,45 +359,51 @@ function hostPermissionOptions(c, requested) {
       checked: p === 'view' && supported,
       disabled: !supported,
       hint: supported ? PERMISSION_HINTS[p] : (p === 'control'
-        ? 'Indisponível: este dispositivo não tem o agente nativo de controle.'
-        : 'Indisponível: este navegador não compartilha a tela.'),
+        ? 'Indisponível: este dispositivo não tem o agente de controle.'
+        : 'Indisponível: este dispositivo não compartilha a tela.'),
     };
   }
-  return { only: PERMISSIONS.filter((p) => requested[p]), options };
+  return options;
 }
 
 function openApproveDialog(req) {
   const c = controller;
   $('approve-name').textContent = req.name;
   $('approve-error').textContent = '';
-  renderPermissionChoices($('approve-perms'), { name: 'grant', ...hostPermissionOptions(c, req.requested) });
+  renderPermissionChoices($('approve-perms'), {
+    name: 'grant', only: PERMISSIONS.filter((p) => req.requested[p]), options: hostPermissionOptions(c),
+  });
   stopDialogCountdown();
   stopDialogCountdown = countdown($('approve-countdown'), req.expiresAt);
-  $('btn-accept').disabled = false;
-  $('dlg-approve').showModal();
+  setBusy($('btn-accept'), false);
+  openDialog($('dlg-approve'));
 }
 
 $('form-approve').addEventListener('submit', async (e) => {
   e.preventDefault();
   const granted = readPermissionChoices($('approve-perms'));
-  $('btn-accept').disabled = true;
+  setBusy($('btn-accept'), true, 'Aceitando…');
   try {
     await controller.approve(granted);
     stopDialogCountdown();
-    $('dlg-approve').close();
+    closeDialog($('dlg-approve'));
   } catch {
-    $('approve-error').textContent = 'Você não escolheu o que compartilhar. Escolha uma tela ou desmarque "Ver a tela".';
-    $('btn-accept').disabled = false;
+    if (controller?.pendingRequest) {
+      $('approve-error').textContent = 'Você não escolheu o que compartilhar. Escolha uma tela ou desative "Ver a tela".';
+      openDialog($('dlg-approve'));
+    }
+  } finally {
+    setBusy($('btn-accept'), false);
   }
 });
 
 function rejectRequest() {
   stopDialogCountdown();
   controller?.reject();
-  if ($('dlg-approve').open) $('dlg-approve').close();
+  closeDialog($('dlg-approve'));
 }
 $('btn-reject').addEventListener('click', rejectRequest);
-// Esc no diálogo de aprovação equivale a recusar (a opção segura).
+// Esc no pedido de conexão equivale a recusar (a opção segura).
 $('dlg-approve').addEventListener('cancel', (e) => {
   e.preventDefault();
   rejectRequest();
@@ -261,34 +414,36 @@ function openPermRequestDialog(asked) {
   const pending = PERMISSIONS.filter((p) => asked[p] && !c.granted[p]);
   if (!pending.length) return;
   $('permreq-name').textContent = c.peerName;
-  const { options } = hostPermissionOptions(c, asked);
+  const options = hostPermissionOptions(c);
   for (const p of pending) options[p].checked = false;
   renderPermissionChoices($('permreq-perms'), { name: 'permreq', only: pending, options });
-  $('dlg-perm-request').showModal();
+  openDialog($('dlg-perm-request'));
 }
 
 $('form-perm-request').addEventListener('submit', async (e) => {
   e.preventDefault();
   const chosen = readPermissionChoices($('permreq-perms'));
-  $('dlg-perm-request').close();
+  closeDialog($('dlg-perm-request'));
   try {
     await controller.setPermissions({ ...controller.granted, ...chosen });
   } catch {
-    toast('Você não escolheu o que compartilhar; "Ver a tela" continua desativado.', 'error');
+    toast('Você não escolheu o que compartilhar. "Ver a tela" continua desativado.', 'error');
   }
 });
-$('btn-permreq-deny').addEventListener('click', () => $('dlg-perm-request').close());
+$('btn-permreq-deny').addEventListener('click', () => closeDialog($('dlg-perm-request')));
 
 $('btn-copy-invite').addEventListener('click', async () => {
   const text = `ID: ${$('invite-id').textContent}  Código: ${$('invite-secret').textContent}`;
   try {
     await navigator.clipboard.writeText(text);
-    toast('ID e código copiados.');
+    toast('Convite copiado.');
   } catch {
-    toast('Não foi possível copiar. Selecione e copie manualmente.', 'error');
+    toast('Não foi possível copiar. Selecione o ID e o código e copie manualmente.', 'error');
   }
 });
 
+// Cancelar convite e encerrar (anfitrião) são imediatos de propósito: parar de compartilhar
+// precisa ser instantâneo. Nada se perde, a pessoa pode gerar um novo convite.
 $('btn-cancel-invite').addEventListener('click', () => controller?.end('host_ended'));
 
 $('btn-pause').addEventListener('click', () => {
@@ -311,13 +466,19 @@ $('btn-revoke-all').addEventListener('click', () => controller?.revokeAll());
 function bindViewer(c) {
   c.addEventListener('pending', (e) => {
     $('pending-text').textContent = e.detail.hostName
-      ? `${e.detail.hostName} precisa aceitar seu pedido na tela dela.`
-      : 'A pessoa precisa aceitar seu pedido na tela dela.';
+      ? `${e.detail.hostName} precisa aceitar seu pedido.`
+      : 'A pessoa precisa aceitar seu pedido.';
     stopCountdown();
     stopCountdown = countdown($('pending-countdown'), e.detail.expiresAt);
   });
   c.addEventListener('join-error', (e) => {
-    $('tech-form-error').textContent = errorMessage(e.detail.code);
+    const code = e.detail.code;
+    if (code === 'invalid_credentials') {
+      setFieldError($('tech-secret'), $('err-secret'), errorMessage(code));
+      $('tech-secret').focus();
+    } else {
+      showTechError(errorMessage(code));
+    }
   });
   c.addEventListener('stream', (e) => {
     $('video').srcObject = e.detail.stream;
@@ -329,7 +490,7 @@ $('btn-cancel-pending').addEventListener('click', () => controller?.cancelJoin()
 
 $('btn-fullscreen').addEventListener('click', () => {
   if (document.fullscreenElement) document.exitFullscreen();
-  else $('stage').requestFullscreen?.().catch(() => toast('Tela cheia indisponível neste navegador.'));
+  else $('stage').requestFullscreen?.().catch(() => toast('Tela cheia indisponível aqui.'));
 });
 
 $('btn-record').addEventListener('click', async () => {
@@ -337,8 +498,8 @@ $('btn-record').addEventListener('click', async () => {
   if (c.recording) return c.stopRecording();
   const ok = await confirmDialog(
     'Gravar a sessão?',
-    'A outra pessoa verá um aviso de gravação enquanto ela durar. O vídeo fica só neste dispositivo: guarde-o em local protegido e apague quando não precisar mais.',
-    'Começar a gravar',
+    'A outra pessoa verá um aviso enquanto a gravação durar. O vídeo fica só neste dispositivo: guarde em local protegido e apague quando não precisar mais.',
+    { confirmLabel: 'Começar a gravar' },
   );
   if (!ok) return;
   try {
@@ -351,32 +512,61 @@ $('btn-record').addEventListener('click', async () => {
 $('btn-ask-perms').addEventListener('click', () => {
   const c = controller;
   const missing = PERMISSIONS.filter((p) => !c.granted[p]);
-  if (!missing.length) return toast('Você já tem todas as permissões possíveis.');
+  if (!missing.length) return toast('Você já tem todas as permissões disponíveis.');
   const options = {};
   for (const p of missing) {
     const supported = capabilityAllows(p, c.capabilities);
     options[p] = { disabled: !supported, hint: supported ? PERMISSION_HINTS[p] : 'Indisponível no dispositivo da outra pessoa.' };
   }
   renderPermissionChoices($('ask-perms'), { name: 'ask', only: missing, options });
-  $('dlg-ask-perms').showModal();
+  openDialog($('dlg-ask-perms'));
 });
 
 $('form-ask-perms').addEventListener('submit', (e) => {
   e.preventDefault();
   const chosen = readPermissionChoices($('ask-perms'));
-  $('dlg-ask-perms').close();
+  closeDialog($('dlg-ask-perms'));
   if (Object.values(chosen).some(Boolean)) controller.requestPermissions(chosen);
 });
-$('btn-ask-cancel').addEventListener('click', () => $('dlg-ask-perms').close());
+$('btn-ask-cancel').addEventListener('click', () => closeDialog($('dlg-ask-perms')));
 
 /* ---------- Sessão (comum) ---------- */
 
-$('btn-end').addEventListener('click', () => controller?.end());
+let unread = 0;
+const tabs = setupTabs(document.querySelector('.segmented'), (id) => {
+  if (id === 'tab-chat') {
+    unread = 0;
+    updateChatBadge();
+  }
+});
+
+function updateChatBadge() {
+  const badge = $('chat-badge');
+  badge.hidden = unread === 0;
+  badge.textContent = String(unread);
+  $('tab-chat').setAttribute('aria-label', unread ? `Chat, ${unread} ${unread === 1 ? 'mensagem nova' : 'mensagens novas'}` : 'Chat');
+}
+
+$('btn-end').addEventListener('click', async () => {
+  const c = controller;
+  if (!c) return;
+  // O anfitrião encerra na hora (segurança). Quem presta suporte confirma, para não cair por engano.
+  if (c.role === 'viewer') {
+    const ok = await confirmDialog('Encerrar a sessão?', `A conexão com ${c.peerName} será encerrada para os dois.`, { confirmLabel: 'Encerrar sessão', destructive: true });
+    if (!ok) return;
+  }
+  c.end();
+});
 
 function resetSessionUi() {
   for (const id of ['chat-log', 'event-log', 'file-list', 'ended-downloads']) $(id).replaceChildren();
   for (const url of objectUrls) URL.revokeObjectURL(url);
   objectUrls.clear();
+  fileRows.clear();
+  unread = 0;
+  updateChatBadge();
+  $('chat-empty').hidden = false;
+  $('file-confirm').hidden = true;
   $('verify-code').textContent = '----';
   $('route-info').textContent = '';
   $('video').srcObject = null;
@@ -388,32 +578,31 @@ function renderSessionPermissions() {
   const c = controller;
   if (!c) return;
   const box = $('session-perms');
-  box.replaceChildren();
   if (c.role === 'host') {
     // Anfitrião: interruptores. Só aparecem permissões que a outra pessoa pediu.
     const shown = PERMISSIONS.filter((p) => c.requested[p]);
-    const { options } = hostPermissionOptions(c, c.requested);
+    const options = hostPermissionOptions(c);
     for (const p of shown) options[p].checked = c.granted[p];
-    renderPermissionChoices(box, { name: 'live', only: shown, options });
+    renderPermissionChoices(box, { name: 'live', only: shown, options, showState: true });
     for (const input of box.querySelectorAll('input')) {
-      input.setAttribute('role', 'switch');
       input.addEventListener('change', async () => {
         try {
           await c.setPermissions({ ...c.granted, [input.name]: input.checked });
         } catch {
-          toast('Você não escolheu o que compartilhar; "Ver a tela" continua desativado.', 'error');
+          toast('Você não escolheu o que compartilhar. "Ver a tela" continua desativado.', 'error');
           renderSessionPermissions();
         }
       });
     }
-    if (!shown.length) box.append(el('p', { className: 'hint' }, 'Nenhuma permissão foi pedida.'));
+    if (!shown.length) box.replaceChildren(el('p', { className: 'group-row secondary' }, 'Nenhuma permissão foi pedida.'));
+    $('btn-revoke-all').disabled = !PERMISSIONS.some((p) => c.granted[p]);
   } else {
+    box.replaceChildren();
     for (const p of PERMISSIONS) {
       const on = c.granted[p];
-      box.append(el('div', { className: 'perm-item' }, [
-        el('span', { 'aria-hidden': 'true' }, on ? '✔' : '✕'),
-        el('span', { className: 'perm-label' }, PERMISSION_LABELS[p]),
-        el('span', { className: 'perm-state', dataset: { on: String(on) } }, on ? 'Liberado' : 'Não liberado'),
+      box.append(el('div', { className: 'group-row' }, [
+        el('span', { className: 'row-text' }, el('span', { className: 'row-title' }, PERMISSION_LABELS[p])),
+        el('span', { className: 'perm-state', dataset: { on: String(on) } }, [icon(on ? 'check' : 'stop'), ` ${on ? 'Liberado' : 'Bloqueado'}`]),
       ]));
     }
   }
@@ -423,12 +612,17 @@ function renderSessionPermissions() {
   const filesOn = c.can('files');
   $('file-input').disabled = !filesOn;
   $('file-pick-label').hidden = !filesOn;
+  if (!filesOn) $('file-confirm').hidden = true;
   $('files-hint').textContent = filesOn
-    ? 'Até 25 MB. Tipos aceitos: txt, log, csv, json, md, pdf, png, jpg, webp. A outra pessoa precisa aceitar.'
+    ? 'Até 25 MB: txt, log, csv, json, md, pdf, png, jpg ou webp. A outra pessoa precisa aceitar.'
     : 'A transferência de arquivos não está liberada.';
   $('btn-record').disabled = !c.can('record');
   updateBanner();
   updateStage();
+}
+
+function setButtonText(button, text) {
+  button.querySelector('.btn-text').textContent = text;
 }
 
 function updateBanner() {
@@ -445,26 +639,30 @@ function updateBanner() {
   if (c.role === 'host') {
     sharing = c.sharing;
     if (sharing) text = `Sua tela está sendo compartilhada com ${c.peerName}`;
-    else if (c.can('view') && c.paused) text = 'Compartilhamento pausado — a outra pessoa não vê sua tela';
-    else if (c.can('view')) text = 'Tela não está sendo enviada — use "Compartilhar novamente"';
+    else if (c.can('view') && c.paused) text = 'Compartilhamento pausado: a outra pessoa não vê sua tela';
+    else if (c.can('view')) text = 'Sua tela não está sendo enviada';
     else text = 'Sua tela não está sendo compartilhada';
-    $('btn-pause').textContent = c.paused ? 'Retomar compartilhamento' : 'Pausar compartilhamento';
-    $('btn-pause').disabled = !c.can('view') || !c.capture;
+    const pause = $('btn-pause');
+    setButtonText(pause, c.paused ? 'Retomar' : 'Pausar');
+    pause.querySelector('use').setAttribute('href', c.paused ? '#i-play' : '#i-pause');
+    pause.disabled = !c.can('view') || !c.capture;
     $('btn-share-again').hidden = !(c.can('view') && !c.capture);
-    $('banner-record').hidden = !c.peerRecording;
-    $('banner-record').textContent = 'O técnico está gravando a sessão';
+    $('banner-record-item').hidden = !c.peerRecording;
+    $('banner-record').textContent = `${c.peerName} está gravando a sessão`;
   } else {
     sharing = c.can('view') && !c.hostPaused;
-    text = sharing ? `Você está vendo a tela de ${c.peerName}` : `Sessão com ${c.peerName} — tela não disponível`;
-    $('banner-record').hidden = !c.recording;
+    text = sharing ? `Você está vendo a tela de ${c.peerName}` : `Sessão com ${c.peerName}: tela indisponível`;
+    $('banner-record-item').hidden = !c.recording;
     $('banner-record').textContent = 'Você está gravando';
-    $('btn-record').textContent = c.recording ? 'Parar gravação' : 'Gravar';
+    setButtonText($('btn-record'), c.recording ? 'Parar gravação' : 'Gravar');
   }
   banner.dataset.sharing = String(sharing);
   $('banner-share').textContent = text;
   $('banner-control').textContent = c.can('control') ? 'Controle remoto: ATIVO' : 'Controle remoto: desativado';
-  $('session-peer').textContent = c.role === 'host' ? `Com: ${c.peerName} (presta suporte)` : `Com: ${c.peerName} (recebe suporte)`;
+  $('session-title').textContent = `Sessão com ${c.peerName}`;
+  $('session-peer').textContent = c.role === 'host' ? 'Você está recebendo suporte' : 'Você está prestando suporte';
   document.title = c.role === 'host' && sharing ? `● Compartilhando a tela · ${BASE_TITLE}` : BASE_TITLE;
+  document.documentElement.style.setProperty('--banner-h', `${banner.offsetHeight}px`);
 }
 
 function updateStage() {
@@ -472,7 +670,7 @@ function updateStage() {
   if (!c) return;
   let overlay = '';
   if (c.role === 'host') {
-    if (!c.can('view')) overlay = 'A visualização da tela não está liberada. Só chat e arquivos (se liberados) funcionam.';
+    if (!c.can('view')) overlay = 'A visualização da tela não está liberada.';
     else if (!c.capture) overlay = 'Nada está sendo compartilhado.';
     else if (c.paused) overlay = 'Pausado: a outra pessoa não está vendo sua tela.';
   } else if (!c.can('view')) {
@@ -486,15 +684,19 @@ function updateStage() {
 }
 
 function addEvent({ text, kind, at }) {
-  const item = el('li', { dataset: { kind } }, [el('time', {}, formatTime(at)), text]);
-  $('event-log').prepend(item);
+  $('event-log').prepend(el('li', { dataset: { kind } }, [el('time', {}, formatTime(at)), el('span', {}, text)]));
 }
 
 function addChat({ from, text, at }) {
   const who = from === 'me' ? 'Você' : controller.peerName;
   const item = el('li', { dataset: { from } }, [el('span', { className: 'meta' }, `${who} · ${formatTime(at)}`), text]);
   $('chat-log').append(item);
+  $('chat-empty').hidden = true;
   item.scrollIntoView({ block: 'nearest' });
+  if (from !== 'me' && tabs.selected() !== 'tab-chat') {
+    unread += 1;
+    updateChatBadge();
+  }
 }
 
 $('form-chat').addEventListener('submit', (e) => {
@@ -507,6 +709,7 @@ $('form-chat').addEventListener('submit', (e) => {
 /* ---------- Arquivos ---------- */
 
 const fileRows = new Map();
+let fileToSend = null;
 
 function fileRow(id, label) {
   let row = fileRows.get(id);
@@ -523,17 +726,30 @@ function fileRow(id, label) {
 function downloadLink(blob, name, container) {
   const url = URL.createObjectURL(blob);
   objectUrls.add(url);
-  const a = el('a', { href: url, download: name, className: 'btn btn-small' }, `Salvar ${name}`);
+  const a = el('a', { href: url, download: name, className: 'btn' }, [icon('download'), `Salvar ${name}`]);
   container.append(a);
   return a;
 }
 
-$('file-input').addEventListener('change', async (e) => {
+// Confirmação inline (no próprio painel), sem abrir outro diálogo.
+$('file-input').addEventListener('change', (e) => {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file || !controller) return;
-  const ok = await confirmDialog('Enviar arquivo?', `Enviar "${file.name}" (${formatSize(file.size)}) para ${controller.peerName}? A pessoa ainda precisará aceitar.`, 'Enviar');
-  if (!ok) return;
+  fileToSend = file;
+  $('file-confirm-text').textContent = `Enviar "${file.name}" (${formatSize(file.size)}) para ${controller.peerName}? A pessoa ainda precisará aceitar.`;
+  $('file-confirm').hidden = false;
+  $('btn-file-send').focus();
+});
+$('btn-file-cancel').addEventListener('click', () => {
+  fileToSend = null;
+  $('file-confirm').hidden = true;
+});
+$('btn-file-send').addEventListener('click', async () => {
+  const file = fileToSend;
+  fileToSend = null;
+  $('file-confirm').hidden = true;
+  if (!file) return;
   try {
     await controller.sendFile(file);
   } catch (err) {
@@ -548,16 +764,16 @@ function onFileIncoming(d) {
   switch (d.status) {
     case 'offered':
       pendingIncoming = d.id;
-      fileRow(d.id, `Recebendo oferta: ${d.name} (${size})`);
+      fileRow(d.id, `Oferta recebida: ${d.name} (${size})`);
       $('file-dlg-name').textContent = d.name;
       $('file-dlg-size').textContent = size;
-      $('dlg-file').showModal();
+      openDialog($('dlg-file'));
       break;
     case 'receiving':
       fileRow(d.id, `Recebendo ${d.name}…`).progress.hidden = false;
       break;
     case 'received': {
-      const row = fileRow(d.id, `Recebido e verificado: ${d.name} `);
+      const row = fileRow(d.id, `Recebido e verificado: ${d.name}`);
       row.progress.hidden = true;
       downloadLink(d.blob, d.name, row.li);
       break;
@@ -569,8 +785,8 @@ function onFileIncoming(d) {
       fileRow(d.id, `Você recusou ${d.name}.`).progress.hidden = true;
       break;
     case 'failed':
-      if (pendingIncoming === d.id && $('dlg-file').open) $('dlg-file').close();
-      fileRow(d.id, `Falhou: ${d.name} — ${FILE_ERROR_MESSAGES[d.reason] ?? d.reason}`).progress.hidden = true;
+      if (pendingIncoming === d.id) closeDialog($('dlg-file'));
+      fileRow(d.id, `Falhou: ${d.name}. ${FILE_ERROR_MESSAGES[d.reason] ?? d.reason}`).progress.hidden = true;
       break;
     default:
   }
@@ -578,14 +794,14 @@ function onFileIncoming(d) {
 
 $('form-file').addEventListener('submit', (e) => {
   e.preventDefault();
-  $('dlg-file').close();
+  closeDialog($('dlg-file'));
   if (pendingIncoming) controller?.files?.accept(pendingIncoming);
   pendingIncoming = null;
 });
 function rejectFile() {
   if (pendingIncoming) controller?.files?.reject(pendingIncoming);
   pendingIncoming = null;
-  if ($('dlg-file').open) $('dlg-file').close();
+  closeDialog($('dlg-file'));
 }
 $('btn-file-reject').addEventListener('click', rejectFile);
 $('dlg-file').addEventListener('cancel', (e) => {
@@ -598,8 +814,8 @@ function onFileOutgoing(d) {
     offered: `Aguardando a outra pessoa aceitar ${d.name}…`,
     sending: `Enviando ${d.name}…`,
     sent: `Enviado: ${d.name}`,
-    rejected: `Não aceito: ${d.name} — ${FILE_ERROR_MESSAGES[d.reason] ?? FILE_ERROR_MESSAGES.rejected}`,
-    failed: `Falhou: ${d.name} — ${FILE_ERROR_MESSAGES[d.reason] ?? d.reason}`,
+    rejected: `Não aceito: ${d.name}. ${FILE_ERROR_MESSAGES[d.reason] ?? FILE_ERROR_MESSAGES.rejected}`,
+    failed: `Falhou: ${d.name}. ${FILE_ERROR_MESSAGES[d.reason] ?? d.reason}`,
   };
   const row = fileRow(d.id, messages[d.status]);
   row.progress.hidden = d.status !== 'sending';
@@ -619,10 +835,11 @@ function onRecording({ active, blob, extension }) {
   if (!active && blob === null) toast('A gravação terminou sem imagem para salvar.', 'error');
   if (!active && blob) {
     const name = `sessao-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${extension}`;
-    const target = controller.state === 'ended' || controller.state === 'failed' ? $('ended-downloads') : $('file-list');
-    const holder = target === $('file-list') ? el('li', {}, 'Gravação pronta: ') : el('p', {}, 'Gravação da sessão: ');
-    target.prepend(holder);
+    const ended = controller.state === 'ended' || controller.state === 'failed';
+    const holder = ended ? el('p', {}, 'Gravação da sessão:') : el('li', {}, el('span', {}, 'Gravação pronta.'));
+    (ended ? $('ended-downloads') : $('file-list')).prepend(holder);
     downloadLink(blob, name, holder);
+    if (!ended) toast('Gravação pronta na aba Arquivos.');
   }
 }
 
@@ -631,7 +848,7 @@ function onRecording({ active, blob, extension }) {
 function onEnded(reason) {
   stopCountdown();
   stopDialogCountdown();
-  for (const id of ['dlg-approve', 'dlg-file', 'dlg-perm-request', 'dlg-ask-perms', 'dlg-confirm']) {
+  for (const id of ['dlg-approve', 'dlg-file', 'dlg-perm-request', 'dlg-ask-perms', 'dlg-confirm', 'dlg-source']) {
     if ($(id).open) $(id).close();
   }
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -639,18 +856,19 @@ function onEnded(reason) {
   $('session-banner').hidden = true;
   document.title = BASE_TITLE;
   const c = controller;
-  // Falha de entrada do técnico (antes de ser aceito) volta para o formulário.
-  if (c.role === 'viewer' && !c.startedAt && reason !== 'cancelled') {
-    $('ended-title').textContent = 'Conexão não realizada';
-  } else {
-    $('ended-title').textContent = c.state === 'failed' ? 'Falha na conexão' : 'Sessão encerrada';
-  }
+  const failed = c.state === 'failed';
+  const notConnected = c.role === 'viewer' && !c.startedAt && reason !== 'cancelled';
+  $('ended-title').textContent = failed ? 'Falha na conexão' : (notConnected ? 'Conexão não realizada' : 'Sessão encerrada');
+  const kind = failed ? 'error' : (notConnected || ['policy_violation', 'too_many_attempts'].includes(reason) ? 'warning' : 'ok');
+  $('ended-icon').dataset.kind = kind;
+  $('ended-icon').querySelector('use').setAttribute('href', kind === 'ok' ? '#i-check' : '#i-warning');
   $('ended-reason').textContent = endMessage(reason, c.role);
-  showView('view-ended');
+  go('view-ended');
   signaling.close();
 }
 
 $('btn-home').addEventListener('click', () => {
+  const role = controller?.role;
   controller?.dispose();
   controller = null;
   for (const url of objectUrls) URL.revokeObjectURL(url);
@@ -658,13 +876,23 @@ $('btn-home').addEventListener('click', () => {
   fileRows.clear();
   $('ended-downloads').replaceChildren();
   delete document.body.dataset.role;
-  showView('view-home');
-  renderHistory();
+  const target = role === 'viewer' ? 'prestar' : 'receber';
+  if (location.hash.slice(1) === target) route();
+  else location.hash = target;
 });
 
-// Aviso ao fechar a aba no meio de uma sessão.
+// O formulário de confirmação fecha com a mesma animação dos outros diálogos.
+$('dlg-confirm').querySelector('form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  closeDialog($('dlg-confirm'), e.submitter?.value ?? 'no');
+});
+
+// Aviso ao fechar no meio de uma sessão.
 window.addEventListener('beforeunload', (e) => {
-  if (controller && ['waiting', 'connecting', 'connected', 'reconnecting'].includes(controller.state)) e.preventDefault();
+  if (inFlow()) e.preventDefault();
 });
 
-renderHome();
+renderCaptureSupport();
+renderTechPermissions();
+setupDesktop();
+route();

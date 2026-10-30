@@ -2,18 +2,93 @@
   "name": "ponte-suporte-remoto",
   "version": "0.1.0",
   "private": true,
-  "description": "Suporte remoto assistido via navegador: convite com consentimento, WebRTC ponta a ponta e permissões granulares.",
+  "description": "Suporte remoto assistido: convite com consentimento, WebRTC ponta a ponta e permissões granulares.",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "start": "node server/index.js",
+    "desktop": "electron .",
     "test": "node --test \"test/**/*.test.js\"",
     "test:e2e": "node e2e/run.mjs",
-    "check": "node scripts/check-syntax.mjs"
+    "test:desktop": "node e2e/desktop.mjs",
+    "check": "node scripts/check-syntax.mjs",
+    "icons": "node scripts/build-icons.mjs",
+    "dist": "electron-builder --publish never",
+    "dist:linux": "electron-builder --linux --publish never",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:mac": "electron-builder --mac --publish never"
   },
   "dependencies": {
     "ws": "^8.18.0"
-  }
+  },
+  "devDependencies": {
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
+    "playwright": "1.63.0"
+  },
+  "main": "desktop/main.mjs",
+  "author": {
+    "name": "geandreac",
+    "email": "geandreac@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/geandreac/ponte-suporte-remoto",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/geandreac/ponte-suporte-remoto.git"
+  },
+  "license": "MIT",
+  "build": {
+    "appId": "io.github.geandreac.ponte",
+    "productName": "Ponte",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "desktop/**",
+      "server/**",
+      "shared/**",
+      "public/**",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network",
+      "synopsis": "Suporte remoto assistido",
+      "maintainer": "geandreac <geandreac@users.noreply.github.com>",
+      "syncDesktopName": true,
+      "executableName": "ponte"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-win-portable-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    }
+  },
+  "desktopName": "ponte.desktop"
 }

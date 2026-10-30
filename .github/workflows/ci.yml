@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - name: Instalar Chromium do Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Teste ponta a ponta (dois navegadores reais)
+        run: npm run test:e2e
+      - name: Teste do app de computador (Electron + Xvfb)
+        run: xvfb-run -a -s "-screen 0 1280x800x24" npm run test:desktop
+      - name: Capturas de tela dos testes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capturas-e2e
+          path: e2e/output/
+          if-no-files-found: ignore

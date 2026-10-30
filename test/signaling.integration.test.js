@@ -87,6 +87,11 @@ test('rejeita WebSocket de outra origem', async () => {
   await assert.rejects(client({ origin: 'https://site-malicioso.example' }));
 });
 
+test('aceita a origem do app de computador', async () => {
+  const c = await client({ origin: 'ponte://app' });
+  await c.close();
+});
+
 test('fluxo completo: convite, aprovação, sinalização e encerramento', async () => {
   const { host, created } = await hostSession();
   assert.match(created.sessionId, /^\d{9}$/);

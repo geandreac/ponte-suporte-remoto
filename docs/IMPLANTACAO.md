@@ -16,6 +16,19 @@
 | `AUDIT_LOG_FILE` | stdout | Arquivo do log de auditoria (criado com permissão 600) |
 | `INVITE_TTL_SECONDS`, `JOIN_REQUEST_TTL_SECONDS`, `RECONNECT_GRACE_SECONDS`, `MAX_SESSION_MINUTES`, `MAX_FAILED_ATTEMPTS` | 600, 120, 30, 240, 5 | Prazos e limites |
 
+## Docker
+
+```bash
+docker build -t ponte-servidor .
+```
+
+```bash
+docker run -d --name ponte -p 127.0.0.1:8080:8080 -e ALLOWED_ORIGINS=https://suporte.exemplo.com ponte-servidor
+```
+
+A imagem já usa `HOST=0.0.0.0` e `TRUST_PROXY=1`; publique a porta só para o proxy com HTTPS.
+O app de computador (origem `ponte://app`) é sempre aceito; `ALLOWED_ORIGINS` controla os sites.
+
 ## HTTPS
 
 Navegadores só permitem compartilhar a tela em contexto seguro (HTTPS ou `localhost`).

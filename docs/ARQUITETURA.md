@@ -20,6 +20,22 @@
 - O anfitrião sempre faz a oferta e o técnico só responde: sem colisões de negociação. O vídeo
   usa um transceiver `sendonly` criado no início, então pausar/retomar/revogar não renegocia.
 
+## App de computador (Electron)
+
+- A interface é a mesma da web, servida pelo protocolo próprio `ponte://app` (marcado como seguro).
+  Janelas com `contextIsolation`, `sandbox` e sem Node na página; o `preload` expõe só 8 funções
+  com argumentos convertidos para texto. Navegação externa, `window.open` e `<webview>` bloqueados.
+- Permissões do Chromium liberadas apenas para a origem do app: captura de tela, escrita na área de
+  transferência e tela cheia. Câmera, microfone etc. negados.
+- Captura de tela: `setDisplayMediaRequestHandler` lista telas e janelas reais
+  (`desktopCapturer`) e a pessoa escolhe no seletor do app; no macOS 15+ usa o seletor do sistema.
+  Cancelar não compartilha nada.
+- Modo "neste computador": servidor de sinalização embutido em `127.0.0.1` (porta aleatória).
+  Modo "servidor da organização": endereço HTTPS em Ajustes, convertido para `wss://…/ws`; a CSP da
+  página libera conexão só para esse endereço. O servidor aceita a origem `ponte://app`.
+- Os instaladores são gerados por `electron-builder` (`npm run dist`) e pelo workflow
+  `.github/workflows/release.yml` (Windows, macOS e Linux).
+
 ## Camadas
 
 | Camada | Arquivos | Responsabilidade |
@@ -71,25 +87,25 @@
 - Arquivos: lista de tipos, 25 MB, MIME coerente, assinatura do conteúdo, SHA-256, aceite
   explícito, blocos fora de transferência aceita descartados, revalidação no lado que recebe.
 
-## Controle remoto (agente nativo)
+## Controle remoto
 
-**Por que não está na web:** navegadores não expõem API para gerar eventos de teclado/mouse no
-sistema operacional — por segurança. Qualquer "controle" só via web seria simulado.
+**Situação:** não implementado. Na versão web é impossível (navegadores não geram eventos de
+teclado/mouse no sistema). No app de computador é tecnicamente possível, mas exige um módulo
+nativo de injeção de entrada e cuidados de segurança que ainda não foram feitos.
 
 **O que já está pronto para isso:** a mensagem `input` (coordenadas normalizadas 0–1, teclas,
 botões) é validada em `shared/protocol.js`; a permissão `control` exige a capacidade
 `inputInjection` declarada pelo dispositivo; o anfitrião descarta `input` sem permissão.
 
-**Proposta:** um agente desktop (ex.: Electron ou Tauri) que reusa este cliente, declara
-`inputInjection: true` e injeta eventos pelo SO (SendInput no Windows, CGEvent no macOS com
+**Proposta:** no app de computador, declarar `inputInjection: true` e injetar eventos pelo SO (SendInput no Windows, CGEvent no macOS com
 permissão de Acessibilidade, XTest/uinput no Linux). Requisitos: consentimento explícito antes de
 cada sessão de controle, atalho global para revogar, indicador sempre visível, e bloqueio de
 sequências críticas (ex.: Ctrl+Alt+Del) por padrão.
 
 ## Acesso não assistido
 
-**Não implementado**, de propósito. Exige o agente nativo (o navegador sempre pede para escolher a
-tela e precisa de alguém presente). Proposta mínima segura:
+**Não implementado**, de propósito. Exigiria o app de computador rodando em segundo plano, com
+captura sem confirmação a cada sessão. Proposta mínima segura:
 
 1. Desativado por padrão; ativado só pelo dono do dispositivo, localmente, com reautenticação.
 2. Dispositivo registra um par de chaves (privada no cofre do SO: DPAPI/Keychain/libsecret).
@@ -103,5 +119,6 @@ tela e precisa de alguém presente). Proposta mínima segura:
 1. Autenticação de técnicos (contas, OIDC/passkeys) e exibir identidade verificada na aprovação.
 2. TURN próprio (coturn) com `use-auth-secret` — já suportado pelo servidor.
 3. Persistência compartilhada (Redis) para múltiplas instâncias e reinícios sem derrubar sessões.
-4. Agente nativo para controle remoto e, depois, acesso não assistido.
-5. Revisão jurídica (LGPD), política de retenção do log de auditoria e teste de intrusão.
+4. Controle remoto no app de computador e, depois, acesso não assistido.
+5. Assinatura digital dos instaladores (Apple Developer ID + notarização; certificado Authenticode).
+6. Revisão jurídica (LGPD), política de retenção do log de auditoria e teste de intrusão.

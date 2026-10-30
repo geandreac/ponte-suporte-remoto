@@ -29,9 +29,14 @@ export function clientIp(req, trustProxy) {
   return req.socket.remoteAddress ?? 'unknown';
 }
 
+// Origem fixa do app de computador. Páginas web não conseguem forjar o cabeçalho Origin,
+// então aceitá-la não abre a porta para sites maliciosos.
+export const DESKTOP_ORIGIN = 'ponte://app';
+
 export function isOriginAllowed(req, allowedOrigins) {
   const origin = req.headers.origin;
   if (!origin) return false;
+  if (origin === DESKTOP_ORIGIN) return true;
   if (allowedOrigins.length) return allowedOrigins.includes(origin);
   try {
     return new URL(origin).host === req.headers.host;

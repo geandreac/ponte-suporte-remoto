@@ -15,7 +15,7 @@ const MOUNTS = [
   { prefix: '/', dir: join(ROOT, 'public') },
 ];
 
-const MIME = {
+export const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -24,7 +24,7 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
-export function securityHeaders({ tls }) {
+export function securityHeaders({ tls, connectSrc = ["'self'"] }) {
   const headers = {
     'Content-Security-Policy': [
       "default-src 'self'",
@@ -32,7 +32,7 @@ export function securityHeaders({ tls }) {
       "style-src 'self'",
       "img-src 'self' data: blob:",
       "media-src 'self' blob:",
-      "connect-src 'self'",
+      `connect-src ${connectSrc.join(' ')}`,
       "object-src 'none'",
       "base-uri 'none'",
       "form-action 'none'",

@@ -2,241 +2,364 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="Suporte remoto assistido: compartilhe a tela só com quem você autorizar.">
   <title>Ponte · Suporte remoto</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/app.css">
-  <script type="module" src="/js/main.js"></script>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/app.css">
+  <script type="module" src="js/main.js"></script>
 </head>
 <body>
+  <!-- Ícones: traço único de 1,75px, cantos arredondados. Estilo próprio do produto. -->
+  <svg width="0" height="0" class="sprite" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-logo" viewBox="0 0 24 24"><path d="M3 17c3-6.5 6-9.5 9-9.5s6 3 9 9.5"/><path d="M7 17v-3.5M12 17V7.5M17 17v-3.5"/></symbol>
+      <symbol id="i-share" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M12 13V7M9.5 9.5 12 7l2.5 2.5"/></symbol>
+      <symbol id="i-support" viewBox="0 0 24 24"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="13" width="4" height="6" rx="1.5"/><rect x="17" y="13" width="4" height="6" rx="1.5"/><path d="M19 19c0 1.5-1.5 2.5-4 2.5h-2"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+      <symbol id="i-live" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M7.5 7.5a6.5 6.5 0 0 0 0 9M16.5 7.5a6.5 6.5 0 0 1 0 9"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
+      <symbol id="i-record" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5"/></symbol>
+      <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></symbol>
+      <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4.5M12 17.5v.01"/></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8v.01"/></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 17h-8l-4.5 3.5V17H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 5z"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3.5h8l4.5 4.5v12.5H6z"/><path d="M14 3.5V8h4.5"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 7h11M9 12h11M9 17h11M4.5 7v.01M4.5 12v.01M4.5 17v.01"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5 5 6v6c0 4.5 3 7.5 7 8.5 4-1 7-4 7-8.5V6z"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c1-3.5 3.8-5.5 7-5.5s6 2 7 5.5"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/></symbol>
+      <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></symbol>
+    </defs>
+  </svg>
+
   <a class="skip-link" href="#main">Pular para o conteúdo</a>
 
-  <header class="app-header">
-    <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M3 22c4-9 9-13 13-13s9 4 13 13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M8 22v-5M16 22V9M24 22v-5" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
-      <span class="brand-name">Ponte</span>
-      <span class="brand-sub">Suporte remoto</span>
-    </div>
-    <p id="signal-status" class="pill" data-status="offline" role="status">
-      <span class="dot" aria-hidden="true"></span><span class="pill-text">Servidor: desconectado</span>
-    </p>
-  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span class="app-icon" aria-hidden="true"><svg class="icon"><use href="#i-logo"/></svg></span>
+        <span class="brand-name">Ponte</span>
+      </div>
+      <nav aria-label="Navegação principal">
+        <ul class="nav-list">
+          <li><a class="nav-item" href="#receber" data-nav="host"><svg class="icon" aria-hidden="true"><use href="#i-share"/></svg><span>Receber suporte</span></a></li>
+          <li><a class="nav-item" href="#prestar" data-nav="tech"><svg class="icon" aria-hidden="true"><use href="#i-support"/></svg><span>Prestar suporte</span></a></li>
+          <li><a class="nav-item" href="#historico" data-nav="history"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span>Histórico</span></a></li>
+          <li data-desktop-only hidden><a class="nav-item" href="#ajustes" data-nav="settings"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg><span>Ajustes</span></a></li>
+          <li id="nav-session" hidden><a class="nav-item" href="#sessao" data-nav="session"><svg class="icon" aria-hidden="true"><use href="#i-live"/></svg><span>Sessão atual</span></a></li>
+        </ul>
+      </nav>
+      <div class="sidebar-footer">
+        <p id="signal-status" class="status-chip" data-status="offline" role="status">
+          <span class="dot" aria-hidden="true"></span><span class="status-text">Servidor: desconectado</span>
+        </p>
+      </div>
+    </aside>
 
-  <!-- Indicador permanente durante a sessão: o que está sendo compartilhado e o que está ativo. -->
-  <div id="session-banner" class="session-banner" hidden role="status" aria-live="polite">
-    <span id="banner-share" class="banner-item"></span>
-    <span id="banner-record" class="banner-item banner-record" hidden>Gravação ativa</span>
-    <span id="banner-control" class="banner-item">Controle remoto: desativado</span>
-  </div>
-
-  <main id="main" tabindex="-1">
-    <!-- Tela inicial -->
-    <section id="view-home" class="view" aria-labelledby="home-title">
-      <h1 id="home-title" class="visually-hidden">Início</h1>
-      <div id="home-error" class="alert alert-error" role="alert" hidden></div>
-      <div class="home-grid">
-        <article class="card" aria-labelledby="host-title">
-          <h2 id="host-title">Receber suporte</h2>
-          <p>Gere um convite e passe o ID e o código apenas para quem vai te ajudar. Nada é compartilhado até você aprovar.</p>
-          <form id="form-host" class="stack" novalidate>
-            <label class="field">
-              <span>Seu nome (opcional)</span>
-              <input id="host-name" name="name" maxlength="64" autocomplete="name">
-            </label>
-            <p id="capture-support" class="hint"></p>
-            <button type="submit" class="btn btn-primary">Gerar convite</button>
-          </form>
-        </article>
-
-        <article class="card" aria-labelledby="tech-title">
-          <h2 id="tech-title">Prestar suporte</h2>
-          <p>Digite o ID e o código que a pessoa te passou. Ela verá seu nome e decidirá o que liberar.</p>
-          <form id="form-tech" class="stack" novalidate>
-            <label class="field">
-              <span>ID da sessão</span>
-              <input id="tech-session" name="sessionId" inputmode="numeric" autocomplete="off" placeholder="123 456 789" required aria-describedby="tech-form-error">
-            </label>
-            <label class="field">
-              <span>Código de acesso</span>
-              <input id="tech-secret" name="secret" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD-EFGH" required aria-describedby="tech-form-error">
-            </label>
-            <label class="field">
-              <span>Seu nome</span>
-              <input id="tech-name" name="name" maxlength="64" autocomplete="name" required aria-describedby="tech-form-error">
-            </label>
-            <fieldset class="perm-fieldset">
-              <legend>Permissões que você precisa</legend>
-              <div id="tech-perms" class="perm-list"></div>
-            </fieldset>
-            <p id="tech-form-error" class="field-error" role="alert"></p>
-            <button type="submit" class="btn btn-primary">Pedir conexão</button>
-          </form>
-        </article>
+    <div class="main-column">
+      <!-- Indicador permanente durante a sessão. Cada item tem ícone e texto (não depende só da cor). -->
+      <div id="session-banner" class="session-banner" hidden role="status" aria-live="polite">
+        <span class="banner-item"><svg class="icon" aria-hidden="true"><use href="#i-share"/></svg><span id="banner-share"></span></span>
+        <span class="banner-item" id="banner-record-item" hidden><svg class="icon" aria-hidden="true"><use href="#i-record"/></svg><span id="banner-record"></span></span>
+        <span class="banner-item"><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span id="banner-control">Controle remoto: desativado</span></span>
       </div>
 
-      <section class="card history" aria-labelledby="history-title">
-        <div class="card-head">
-          <h2 id="history-title">Sessões recentes</h2>
-          <button id="btn-clear-history" type="button" class="btn btn-ghost btn-small">Limpar</button>
-        </div>
-        <p class="hint">Fica salvo só neste navegador. Sem códigos, mensagens ou arquivos.</p>
-        <ul id="history-list" class="history-list"></ul>
-      </section>
-    </section>
-
-    <!-- Anfitrião aguardando o técnico -->
-    <section id="view-invite" class="view" hidden aria-labelledby="invite-title">
-      <article class="card invite-card">
-        <h1 id="invite-title">Seu convite está pronto</h1>
-        <dl class="invite-codes">
-          <div>
-            <dt>ID da sessão</dt>
-            <dd id="invite-id" class="code-big"></dd>
-          </div>
-          <div>
-            <dt>Código de acesso</dt>
-            <dd id="invite-secret" class="code-big"></dd>
-          </div>
-        </dl>
-        <p class="invite-expiry">Expira em <strong id="invite-countdown">--:--</strong> e só pode ser usado uma vez.</p>
-        <div class="row">
-          <button id="btn-copy-invite" type="button" class="btn">Copiar ID e código</button>
-          <button id="btn-cancel-invite" type="button" class="btn btn-danger">Cancelar convite</button>
-        </div>
-        <ol class="steps">
-          <li>Passe o ID e o código <strong>só para quem você pediu ajuda</strong>, por um canal em que confia.</li>
-          <li>Quando a pessoa se conectar, você verá o nome dela e o que ela pediu para acessar.</li>
-          <li>Você escolhe o que liberar e pode pausar ou encerrar a qualquer momento.</li>
-        </ol>
-        <p class="alert alert-warn"><strong>Atenção a golpes:</strong> ninguém de banco, operadora ou "suporte técnico" deve te pedir para instalar ou abrir acesso remoto por ligação ou mensagem inesperada. Na dúvida, cancele.</p>
-      </article>
-    </section>
-
-    <!-- Técnico aguardando aprovação -->
-    <section id="view-pending" class="view" hidden aria-labelledby="pending-title">
-      <article class="card center">
-        <div class="spinner" aria-hidden="true"></div>
-        <h1 id="pending-title">Aguardando aprovação</h1>
-        <p id="pending-text">A pessoa precisa aceitar seu pedido na tela dela.</p>
-        <p class="hint">O pedido expira em <strong id="pending-countdown">--:--</strong>.</p>
-        <button id="btn-cancel-pending" type="button" class="btn">Desistir</button>
-      </article>
-    </section>
-
-    <!-- Sessão em andamento (anfitrião e técnico) -->
-    <section id="view-session" class="view" hidden aria-labelledby="session-title">
-      <div class="session-head">
-        <div>
-          <h1 id="session-title">Sessão de suporte</h1>
-          <p id="session-peer" class="muted"></p>
-        </div>
-        <div class="session-actions">
-          <button id="btn-pause" type="button" class="btn btn-warn" data-for="host">Pausar compartilhamento</button>
-          <button id="btn-share-again" type="button" class="btn" data-for="host" hidden>Compartilhar novamente</button>
-          <button id="btn-record" type="button" class="btn" data-for="viewer">Gravar</button>
-          <button id="btn-fullscreen" type="button" class="btn" data-for="viewer">Tela cheia</button>
-          <button id="btn-end" type="button" class="btn btn-danger">Encerrar sessão</button>
-        </div>
-      </div>
-
-      <p id="conn-status" class="conn-status" data-state="connecting" role="status" aria-live="polite"></p>
-
-      <div class="session-grid">
-        <div class="stage" id="stage">
-          <video id="video" autoplay playsinline muted></video>
-          <div id="stage-overlay" class="stage-overlay"></div>
-          <p id="stage-caption" class="stage-caption" data-for="host">Prévia do que a outra pessoa vê</p>
-        </div>
-
-        <aside class="side" aria-label="Painel da sessão">
-          <section class="panel" aria-labelledby="verify-title">
-            <h2 id="verify-title">Verificação</h2>
-            <p class="verify-code" id="verify-code">----</p>
-            <p class="hint">Confirme por telefone que a outra pessoa vê o mesmo código. Se for diferente, encerre: a conexão pode ter sido interceptada.</p>
-            <p class="hint" id="route-info"></p>
-          </section>
-
-          <section class="panel" aria-labelledby="perm-title">
-            <div class="card-head">
-              <h2 id="perm-title">Permissões</h2>
-              <button id="btn-revoke-all" type="button" class="btn btn-ghost btn-small" data-for="host">Revogar todas</button>
-              <button id="btn-ask-perms" type="button" class="btn btn-ghost btn-small" data-for="viewer">Pedir mais</button>
+      <main id="main" tabindex="-1">
+        <!-- ===== Receber suporte ===== -->
+        <section id="view-host" class="view" aria-labelledby="host-title">
+          <header class="toolbar"><h1 id="host-title" class="toolbar-title">Receber suporte</h1></header>
+          <div class="content content-narrow">
+            <div class="intro">
+              <span class="intro-icon" aria-hidden="true"><svg class="icon"><use href="#i-share"/></svg></span>
+              <div>
+                <h2 class="headline">Compartilhe sua tela com quem vai te ajudar</h2>
+                <p class="secondary">Você gera um convite, a pessoa pede acesso e nada é compartilhado até você aprovar.</p>
+              </div>
             </div>
-            <div id="session-perms" class="perm-list"></div>
-          </section>
-
-          <section class="panel" aria-labelledby="chat-title">
-            <h2 id="chat-title">Chat</h2>
-            <ol id="chat-log" class="chat-log" aria-live="polite"></ol>
-            <form id="form-chat" class="chat-form">
-              <label for="chat-input" class="visually-hidden">Mensagem</label>
-              <input id="chat-input" maxlength="2000" autocomplete="off" placeholder="Escreva uma mensagem">
-              <button type="submit" class="btn">Enviar</button>
+            <form id="form-host" class="form" novalidate>
+              <div class="group">
+                <label class="group-row field" for="host-name">
+                  <span class="field-label">Seu nome</span>
+                  <input id="host-name" name="name" maxlength="64" autocomplete="name" placeholder="Opcional" aria-describedby="host-name-hint">
+                </label>
+              </div>
+              <p class="group-footer" id="host-name-hint">Aparece para quem vai te ajudar.</p>
+              <p id="capture-support" class="status-row"></p>
+              <p id="home-error" class="inline-alert" data-kind="error" role="alert" hidden></p>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="btn-create-invite">Gerar convite</button>
+              </div>
             </form>
-            <p id="chat-disabled" class="hint" hidden>O chat não está liberado nesta sessão.</p>
-          </section>
+            <section class="section" aria-labelledby="how-title">
+              <h2 id="how-title" class="section-title">Como funciona</h2>
+              <ol class="steps">
+                <li><strong>Gere um convite.</strong> Ele vale por 10 minutos e só pode ser usado uma vez.</li>
+                <li><strong>Passe o ID e o código</strong> apenas para quem você pediu ajuda.</li>
+                <li><strong>Aprove o pedido</strong> escolhendo o que liberar. Você pode pausar ou encerrar quando quiser.</li>
+              </ol>
+            </section>
+          </div>
+        </section>
 
-          <section class="panel" aria-labelledby="files-title">
-            <h2 id="files-title">Arquivos</h2>
-            <p class="hint" id="files-hint"></p>
-            <div class="row">
-              <label class="btn" id="file-pick-label">
-                Escolher arquivo
-                <input id="file-input" type="file" class="visually-hidden">
-              </label>
+        <!-- ===== Prestar suporte ===== -->
+        <section id="view-tech" class="view" hidden aria-labelledby="tech-title">
+          <header class="toolbar"><h1 id="tech-title" class="toolbar-title">Prestar suporte</h1></header>
+          <div class="content content-narrow">
+            <form id="form-tech" class="form" novalidate>
+              <h2 class="section-title">Convite</h2>
+              <div class="group">
+                <label class="group-row field" for="tech-session">
+                  <span class="field-label">ID da sessão</span>
+                  <input id="tech-session" name="sessionId" inputmode="numeric" autocomplete="off" placeholder="123 456 789" aria-describedby="err-session">
+                </label>
+                <label class="group-row field" for="tech-secret">
+                  <span class="field-label">Código de acesso</span>
+                  <input id="tech-secret" name="secret" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD-EFGH" aria-describedby="err-secret">
+                </label>
+              </div>
+              <p class="field-error" id="err-session"></p>
+              <p class="field-error" id="err-secret"></p>
+
+              <h2 class="section-title">Você</h2>
+              <div class="group">
+                <label class="group-row field" for="tech-name">
+                  <span class="field-label">Seu nome</span>
+                  <input id="tech-name" name="name" maxlength="64" autocomplete="name" placeholder="Como a pessoa vai te ver" aria-describedby="err-name">
+                </label>
+              </div>
+              <p class="field-error" id="err-name"></p>
+
+              <h2 class="section-title" id="req-title">Acesso solicitado</h2>
+              <div id="tech-perms" class="group" role="group" aria-labelledby="req-title"></div>
+              <p class="group-footer">Peça só o que precisa. A pessoa decide o que liberar.</p>
+
+              <p id="tech-form-error" class="inline-alert" data-kind="error" role="alert" hidden></p>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="btn-join">Pedir conexão</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <!-- ===== Histórico ===== -->
+        <section id="view-history" class="view" hidden aria-labelledby="history-title">
+          <header class="toolbar">
+            <h1 id="history-title" class="toolbar-title">Histórico</h1>
+            <div class="toolbar-actions">
+              <button id="btn-clear-history" type="button" class="btn btn-plain btn-destructive-text"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Limpar histórico</button>
             </div>
-            <ul id="file-list" class="file-list" aria-live="polite"></ul>
-          </section>
+          </header>
+          <div class="content content-narrow">
+            <ul id="history-list" class="group list"></ul>
+            <p class="group-footer">Fica salvo só neste dispositivo. Não inclui códigos, mensagens nem arquivos.</p>
+          </div>
+        </section>
 
-          <section class="panel" aria-labelledby="events-title">
-            <h2 id="events-title">Eventos</h2>
-            <ol id="event-log" class="event-log"></ol>
-          </section>
-        </aside>
-      </div>
-    </section>
+        <!-- ===== Ajustes (só no app de computador) ===== -->
+        <section id="view-settings" class="view" hidden aria-labelledby="settings-title">
+          <header class="toolbar"><h1 id="settings-title" class="toolbar-title">Ajustes</h1></header>
+          <div class="content content-narrow">
+            <form id="form-settings" class="form" novalidate>
+              <h2 class="section-title" id="server-title">Servidor de conexão</h2>
+              <div class="group" role="radiogroup" aria-labelledby="server-title">
+                <label class="group-row choice" for="mode-local">
+                  <input type="radio" id="mode-local" name="mode" value="local">
+                  <span class="choice-text"><span class="row-title">Neste computador</span><span class="row-hint">Para testar com duas janelas no mesmo computador (Arquivo › Nova janela). Não aceita conexões de outros computadores.</span></span>
+                </label>
+                <label class="group-row choice" for="mode-remote">
+                  <input type="radio" id="mode-remote" name="mode" value="remote">
+                  <span class="choice-text"><span class="row-title">Servidor da organização</span><span class="row-hint">Necessário para conectar computadores diferentes.</span></span>
+                </label>
+                <label class="group-row field" for="server-url">
+                  <span class="field-label">Endereço</span>
+                  <input id="server-url" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://suporte.exemplo.com" aria-describedby="err-server">
+                </label>
+              </div>
+              <p class="field-error" id="err-server"></p>
+              <p class="group-footer">O endereço precisa usar HTTPS. Alterar o servidor reinicia o aplicativo.</p>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Salvar e reiniciar</button>
+              </div>
+            </form>
+            <h2 class="section-title">Sobre</h2>
+            <div class="group">
+              <div class="group-row"><span class="row-title">Versão</span><span id="app-version" class="row-trailing"></span></div>
+              <button type="button" class="group-row row-button" id="btn-docs"><span class="row-title">Documentação e código-fonte</span><span class="secondary" aria-hidden="true">›</span></button>
+            </div>
+          </div>
+        </section>
 
-    <!-- Fim da sessão -->
-    <section id="view-ended" class="view" hidden aria-labelledby="ended-title">
-      <article class="card center">
-        <h1 id="ended-title">Sessão encerrada</h1>
-        <p id="ended-reason"></p>
-        <div id="ended-downloads" class="stack"></div>
-        <button id="btn-home" type="button" class="btn btn-primary">Voltar ao início</button>
-      </article>
-    </section>
-  </main>
+        <!-- ===== Convite pronto (anfitrião) ===== -->
+        <section id="view-invite" class="view" hidden aria-labelledby="invite-title">
+          <header class="toolbar">
+            <h1 id="invite-title" class="toolbar-title">Convite pronto</h1>
+            <div class="toolbar-actions">
+              <button id="btn-copy-invite" type="button" class="btn"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>Copiar convite</button>
+              <button id="btn-cancel-invite" type="button" class="btn btn-destructive">Cancelar convite</button>
+            </div>
+          </header>
+          <div class="content content-narrow">
+            <p class="status-row" data-kind="waiting"><span class="activity" aria-hidden="true"></span><span>Aguardando a pessoa se conectar · expira em <strong id="invite-countdown">--:--</strong></span></p>
+            <dl class="code-card">
+              <div class="code-cell"><dt>ID da sessão</dt><dd id="invite-id" class="code-value"></dd></div>
+              <div class="code-cell"><dt>Código de acesso</dt><dd id="invite-secret" class="code-value"></dd></div>
+            </dl>
+            <p class="group-footer">Passe os dois apenas para quem você pediu ajuda, por um canal em que confia. O convite só funciona uma vez.</p>
+            <div class="inline-alert" data-kind="warning">
+              <svg class="icon" aria-hidden="true"><use href="#i-warning"/></svg>
+              <p><strong>Cuidado com golpes.</strong> Bancos, operadoras e lojas não pedem acesso remoto por ligação ou mensagem inesperada. Na dúvida, cancele o convite.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Aguardando aprovação (técnico) ===== -->
+        <section id="view-pending" class="view" hidden aria-labelledby="pending-title">
+          <header class="toolbar"><h1 id="pending-title" class="toolbar-title">Aguardando aprovação</h1></header>
+          <div class="content content-narrow center">
+            <div class="activity activity-large" aria-hidden="true"></div>
+            <p id="pending-text" class="headline">A pessoa precisa aceitar seu pedido na tela dela.</p>
+            <p class="secondary">O pedido expira em <strong id="pending-countdown">--:--</strong>.</p>
+            <button id="btn-cancel-pending" type="button" class="btn">Desistir do pedido</button>
+          </div>
+        </section>
+
+        <!-- ===== Sessão ===== -->
+        <section id="view-session" class="view view-session" hidden aria-labelledby="session-title">
+          <header class="toolbar">
+            <div class="toolbar-heading">
+              <h1 id="session-title" class="toolbar-title">Sessão</h1>
+              <p id="session-peer" class="toolbar-subtitle"></p>
+            </div>
+            <div class="toolbar-actions">
+              <button id="btn-pause" type="button" class="btn" data-for="host"><svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg><span class="btn-text">Pausar</span></button>
+              <button id="btn-share-again" type="button" class="btn" data-for="host" hidden><svg class="icon" aria-hidden="true"><use href="#i-share"/></svg>Compartilhar de novo</button>
+              <button id="btn-record" type="button" class="btn" data-for="viewer"><svg class="icon" aria-hidden="true"><use href="#i-record"/></svg><span class="btn-text">Gravar</span></button>
+              <button id="btn-fullscreen" type="button" class="btn" data-for="viewer"><svg class="icon" aria-hidden="true"><use href="#i-expand"/></svg>Tela cheia</button>
+              <button id="btn-end" type="button" class="btn btn-destructive"><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>Encerrar sessão</button>
+            </div>
+          </header>
+
+          <div class="content content-wide">
+            <div class="session-status">
+              <p id="conn-status" class="status-row" data-kind="waiting" role="status" aria-live="polite"><span class="status-icon" aria-hidden="true"></span><span class="status-label"></span></p>
+              <div class="verify">
+                <span class="secondary">Código de verificação</span>
+                <strong id="verify-code" class="verify-code">----</strong>
+                <details class="disclosure">
+                  <summary>Como usar</summary>
+                  <p>Confirmem por telefone que os dois veem o mesmo número. Se for diferente, encerre: a conexão pode ter sido interceptada.</p>
+                  <p id="route-info"></p>
+                </details>
+              </div>
+            </div>
+
+            <div class="session-grid">
+              <div class="stage" id="stage">
+                <video id="video" autoplay playsinline muted></video>
+                <div id="stage-overlay" class="stage-overlay"></div>
+                <p id="stage-caption" class="stage-caption" data-for="host">Prévia do que a outra pessoa vê</p>
+              </div>
+
+              <aside class="inspector" aria-label="Painel da sessão">
+                <div class="segmented" role="tablist" aria-label="Seções do painel">
+                  <button role="tab" id="tab-perms" aria-controls="panel-perms" aria-selected="true">Permissões</button>
+                  <button role="tab" id="tab-chat" aria-controls="panel-chat" aria-selected="false" tabindex="-1">Chat<span class="badge" id="chat-badge" hidden></span></button>
+                  <button role="tab" id="tab-files" aria-controls="panel-files" aria-selected="false" tabindex="-1">Arquivos</button>
+                  <button role="tab" id="tab-activity" aria-controls="panel-activity" aria-selected="false" tabindex="-1">Atividade</button>
+                </div>
+
+                <section id="panel-perms" class="panel" role="tabpanel" aria-labelledby="tab-perms" tabindex="0">
+                  <div id="session-perms" class="group"></div>
+                  <div class="panel-actions">
+                    <button id="btn-revoke-all" type="button" class="btn btn-plain btn-destructive-text" data-for="host">Revogar todas</button>
+                    <button id="btn-ask-perms" type="button" class="btn btn-plain" data-for="viewer"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Pedir mais permissões</button>
+                  </div>
+                </section>
+
+                <section id="panel-chat" class="panel" role="tabpanel" aria-labelledby="tab-chat" tabindex="0" hidden>
+                  <ol id="chat-log" class="chat-log" aria-live="polite"></ol>
+                  <p id="chat-empty" class="empty-hint">Nenhuma mensagem ainda.</p>
+                  <form id="form-chat" class="chat-form">
+                    <label for="chat-input" class="visually-hidden">Mensagem</label>
+                    <input id="chat-input" maxlength="2000" autocomplete="off" placeholder="Mensagem">
+                    <button type="submit" class="btn btn-primary">Enviar</button>
+                  </form>
+                  <p id="chat-disabled" class="inline-alert" data-kind="info" hidden><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span>O chat não está liberado nesta sessão.</span></p>
+                </section>
+
+                <section id="panel-files" class="panel" role="tabpanel" aria-labelledby="tab-files" tabindex="0" hidden>
+                  <p class="secondary" id="files-hint"></p>
+                  <label class="btn" id="file-pick-label" for="file-input"><svg class="icon" aria-hidden="true"><use href="#i-file"/></svg>Escolher arquivo</label>
+                  <input id="file-input" type="file" class="visually-hidden">
+                  <div id="file-confirm" class="confirm-card" hidden>
+                    <p id="file-confirm-text"></p>
+                    <div class="row">
+                      <button type="button" id="btn-file-cancel" class="btn">Cancelar</button>
+                      <button type="button" id="btn-file-send" class="btn btn-primary">Enviar</button>
+                    </div>
+                  </div>
+                  <ul id="file-list" class="file-list" aria-live="polite"></ul>
+                </section>
+
+                <section id="panel-activity" class="panel" role="tabpanel" aria-labelledby="tab-activity" tabindex="0" hidden>
+                  <ol id="event-log" class="event-log"></ol>
+                </section>
+              </aside>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Fim ===== -->
+        <section id="view-ended" class="view" hidden aria-labelledby="ended-title">
+          <header class="toolbar"><h1 id="ended-title" class="toolbar-title">Sessão encerrada</h1></header>
+          <div class="content content-narrow center">
+            <span class="result-icon" id="ended-icon" aria-hidden="true"><svg class="icon"><use href="#i-check"/></svg></span>
+            <p id="ended-reason" class="headline"></p>
+            <div id="ended-downloads" class="stack"></div>
+            <button id="btn-home" type="button" class="btn btn-primary">Voltar ao início</button>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
 
   <!-- Aprovação do pedido de conexão -->
   <dialog id="dlg-approve" aria-labelledby="approve-title" aria-describedby="approve-desc">
     <form method="dialog" class="dialog-body" id="form-approve">
-      <h2 id="approve-title">Pedido de conexão</h2>
-      <div id="approve-desc">
-        <p class="requester"><span id="approve-name" class="requester-name"></span> <span class="badge">nome informado, não verificado</span></p>
-        <p>Só aceite se você <strong>reconhece essa pessoa e pediu ajuda a ela</strong>.</p>
+      <span class="dialog-icon" aria-hidden="true"><svg class="icon"><use href="#i-user"/></svg></span>
+      <h2 id="approve-title" class="dialog-title">Pedido de conexão</h2>
+      <div id="approve-desc" class="dialog-text">
+        <p><strong id="approve-name" class="requester-name"></strong> <span class="tag">nome não verificado</span></p>
+        <p>Aceite só se você reconhece essa pessoa e pediu ajuda a ela.</p>
       </div>
-      <fieldset class="perm-fieldset">
-        <legend>Escolha o que liberar (você pode mudar depois)</legend>
-        <div id="approve-perms" class="perm-list"></div>
-      </fieldset>
-      <p class="hint">Este pedido expira em <strong id="approve-countdown">--:--</strong>.</p>
+      <h3 class="section-title" id="approve-perms-title">Liberar agora</h3>
+      <div id="approve-perms" class="group" role="group" aria-labelledby="approve-perms-title"></div>
+      <p class="group-footer">Você pode mudar depois. Expira em <strong id="approve-countdown">--:--</strong>.</p>
       <p id="approve-error" class="field-error" role="alert"></p>
-      <div class="row row-end">
+      <div class="dialog-actions">
         <button type="button" id="btn-reject" class="btn" autofocus>Recusar</button>
         <button type="submit" id="btn-accept" class="btn btn-primary">Aceitar</button>
       </div>
     </form>
   </dialog>
 
-  <!-- Pedido de permissões adicionais (anfitrião) -->
+  <!-- Pedido de mais permissões (anfitrião decide) -->
   <dialog id="dlg-perm-request" aria-labelledby="permreq-title">
     <form method="dialog" class="dialog-body" id="form-perm-request">
-      <h2 id="permreq-title">Pedido de mais permissões</h2>
-      <p><span id="permreq-name"></span> pediu acesso a:</p>
-      <div id="permreq-perms" class="perm-list"></div>
-      <div class="row row-end">
+      <h2 id="permreq-title" class="dialog-title">Mais permissões</h2>
+      <p class="dialog-text"><strong id="permreq-name"></strong> pediu acesso a:</p>
+      <div id="permreq-perms" class="group"></div>
+      <div class="dialog-actions">
         <button type="button" id="btn-permreq-deny" class="btn" autofocus>Negar</button>
         <button type="submit" class="btn btn-primary">Liberar selecionadas</button>
       </div>
@@ -246,34 +369,47 @@
   <!-- Técnico pede mais permissões -->
   <dialog id="dlg-ask-perms" aria-labelledby="ask-title">
     <form method="dialog" class="dialog-body" id="form-ask-perms">
-      <h2 id="ask-title">Pedir mais permissões</h2>
-      <div id="ask-perms" class="perm-list"></div>
-      <div class="row row-end">
+      <h2 id="ask-title" class="dialog-title">Pedir mais permissões</h2>
+      <div id="ask-perms" class="group"></div>
+      <div class="dialog-actions">
         <button type="button" id="btn-ask-cancel" class="btn">Cancelar</button>
         <button type="submit" class="btn btn-primary">Enviar pedido</button>
       </div>
     </form>
   </dialog>
 
-  <!-- Confirmação de arquivo recebido -->
+  <!-- Arquivo recebido -->
   <dialog id="dlg-file" aria-labelledby="file-dlg-title">
     <form method="dialog" class="dialog-body" id="form-file">
-      <h2 id="file-dlg-title">Receber arquivo?</h2>
-      <p><strong id="file-dlg-name"></strong> (<span id="file-dlg-size"></span>)</p>
-      <p class="hint">Tipo e conteúdo serão conferidos ao final, mas isso não garante que o arquivo é seguro. Só aceite se estava esperando por ele.</p>
-      <div class="row row-end">
+      <span class="dialog-icon" aria-hidden="true"><svg class="icon"><use href="#i-file"/></svg></span>
+      <h2 id="file-dlg-title" class="dialog-title">Receber arquivo?</h2>
+      <p class="dialog-text"><strong id="file-dlg-name"></strong> · <span id="file-dlg-size"></span></p>
+      <p class="dialog-text secondary">Tipo e conteúdo serão conferidos ao final, mas isso não garante que o arquivo é seguro. Aceite só se estava esperando por ele.</p>
+      <div class="dialog-actions">
         <button type="button" id="btn-file-reject" class="btn" autofocus>Recusar</button>
-        <button type="submit" class="btn btn-primary">Aceitar</button>
+        <button type="submit" class="btn btn-primary">Receber</button>
       </div>
     </form>
   </dialog>
 
-  <!-- Confirmação genérica -->
+  <!-- Escolha de tela/janela (app de computador) -->
+  <dialog id="dlg-source" aria-labelledby="source-title" class="dialog-wide">
+    <div class="dialog-body">
+      <h2 id="source-title" class="dialog-title">Escolha o que compartilhar</h2>
+      <p class="dialog-text secondary">A outra pessoa verá apenas o que você escolher aqui.</p>
+      <div id="source-list" class="source-list"></div>
+      <div class="dialog-actions">
+        <button type="button" id="btn-source-cancel" class="btn" autofocus>Cancelar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Confirmação -->
   <dialog id="dlg-confirm" aria-labelledby="confirm-title">
     <form method="dialog" class="dialog-body">
-      <h2 id="confirm-title"></h2>
-      <p id="confirm-text"></p>
-      <div class="row row-end">
+      <h2 id="confirm-title" class="dialog-title"></h2>
+      <p id="confirm-text" class="dialog-text"></p>
+      <div class="dialog-actions">
         <button value="no" class="btn" autofocus>Cancelar</button>
         <button value="yes" id="confirm-yes" class="btn btn-primary">Confirmar</button>
       </div>
