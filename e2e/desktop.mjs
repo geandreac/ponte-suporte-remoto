@@ -13,7 +13,8 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const { _electron: electron } = require('playwright');
 
-const ROOT = fileURLToPath(new URL('..', import.meta.url));
+// join remove a barra final: no Windows, "pasta\" escaparia a aspa ao lançar o Electron.
+const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const OUT = join(ROOT, 'e2e/output');
 mkdirSync(OUT, { recursive: true });
 const userData = mkdtempSync(join(tmpdir(), 'ponte-desktop-'));
