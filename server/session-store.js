@@ -68,6 +68,40 @@ export class SessionStore {
     return { ok: true, session, secret, hostToken };
   }
 
+  // Sessão sem supervisão: não há convite nem aprovação humana. A sessão nasce ativa, SEM
+  // nenhuma permissão; quem libera é o computador, depois de verificar a senha (no próprio
+  // computador, nunca aqui). O anfitrião ainda precisa se conectar com o token dentro do prazo.
+  createUnattendedSession({ deviceName = '', capabilities, techName, requested }) {
+    if (this.#sessions.size >= this.maxSessions) return { ok: false, error: 'server_busy' };
+    let id;
+    do id = randomSessionId(); while (this.#sessions.has(id));
+    const hostToken = randomToken();
+    const techToken = randomToken();
+    const t = this.now();
+    const session = {
+      id,
+      hostName: deviceName,
+      capabilities: normalizeCapabilities(capabilities),
+      status: 'active',
+      unattended: true,
+      createdAt: t,
+      inviteExpiresAt: t,
+      secretHash: null,
+      hostTokenHash: hashValue(hostToken),
+      techTokenHash: hashValue(techToken),
+      failedAttempts: 0,
+      pendingRequest: null,
+      techName,
+      requested: normalizePermissions(requested),
+      granted: emptyPermissions(),
+      connectedAt: t,
+      disconnectedAt: { host: t, tech: null },
+      endReason: null,
+    };
+    this.#sessions.set(id, session);
+    return { ok: true, session, hostToken, techToken };
+  }
+
   requestJoin({ sessionId, secret, name, requested }) {
     const s = this.#sessions.get(sessionId);
     const t = this.now();

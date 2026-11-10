@@ -22,7 +22,8 @@ import selfsigned from 'selfsigned';
 import { createRateLimiter } from '../server/rate-limiter.js';
 import { SESSION_ID_PATTERN } from '../shared/protocol.js';
 
-export const LAN_PORT = 47800;
+// PONTE_LAN_PORT: só para testes/diagnóstico (ex.: simular dois computadores na mesma máquina).
+export const LAN_PORT = Number.parseInt(process.env.PONTE_LAN_PORT ?? '', 10) || 47800;
 const scrypt = promisify(scryptCb);
 const SCRYPT_OPTIONS = { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 const MAX_DATAGRAM = 1024;
@@ -100,11 +101,20 @@ function parseDatagram(raw) {
 
 // Responde a buscas por convites ativos neste computador. `getKey(id)` devolve a chave do
 // convite ou null. IDs desconhecidos não recebem resposta (não revela quais existem).
-export function createResponder({ port = LAN_PORT, getKey, servicePort, fingerprint, now = Date.now }) {
+// `getDeviceId()`: ID deste computador se o acesso sem supervisão estiver ativo (senão null).
+// A resposta a buscas por ID de computador não traz prova de senha: quem conecta autentica
+// depois, dentro do canal cifrado, com a prova amarrada às impressões digitais da conexão.
+export function createResponder({ port = LAN_PORT, getKey, getDeviceId = () => null, servicePort, fingerprint, now = Date.now }) {
   const socket = createSocket({ type: 'udp4', reuseAddr: true });
   const limiter = createRateLimiter({ capacity: 20, refillPerSecond: 5, now });
   socket.on('message', (raw, rinfo) => {
     const q = parseDatagram(raw);
+    if (q?.t === 'qd' && typeof q.id === 'string' && SESSION_ID_PATTERN.test(q.id)) {
+      if (!limiter.take(rinfo.address) || getDeviceId() !== q.id) return;
+      const reply = { v: 1, t: 'rd', id: q.id, port: servicePort(), fp: fingerprint };
+      socket.send(Buffer.from(JSON.stringify(reply)), rinfo.port, rinfo.address);
+      return;
+    }
     if (!q || q.t !== 'q' || typeof q.id !== 'string' || !SESSION_ID_PATTERN.test(q.id)) return;
     if (typeof q.n !== 'string' || q.n.length < 16 || q.n.length > 64) return;
     if (!limiter.take(rinfo.address)) return;
@@ -162,6 +172,42 @@ export async function discover({ sessionId, secret, address, port = LAN_PORT, ti
     };
     send();
     const resend = setInterval(send, 700);
+    const timer = setTimeout(() => finish(null), timeoutMs);
+  });
+}
+
+// Procura na rede um computador com acesso sem supervisão pelo ID. Devolve { host, port, fingerprint } ou null.
+export async function discoverDevice({ deviceId, address, port = LAN_PORT, timeoutMs = 1500 }) {
+  const socket = createSocket('udp4');
+  await new Promise((resolve, reject) => {
+    socket.once('error', reject);
+    socket.bind(0, resolve);
+  });
+  socket.setBroadcast(true);
+  const targets = address ? [address] : ['255.255.255.255', ...localAddresses().map((a) => a.broadcast)];
+  const query = Buffer.from(JSON.stringify({ v: 1, t: 'qd', id: deviceId }));
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (result) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      clearInterval(resend);
+      socket.close();
+      resolve(result);
+    };
+    socket.on('message', (raw, rinfo) => {
+      const r = parseDatagram(raw);
+      if (!r || r.t !== 'rd' || r.id !== deviceId) return;
+      if (!Number.isInteger(r.port) || r.port < 1 || r.port > 65535 || typeof r.fp !== 'string' || r.fp.length > 64) return;
+      finish({ host: rinfo.address, port: r.port, fingerprint: r.fp });
+    });
+    socket.on('error', () => {});
+    const send = () => {
+      for (const target of new Set(targets)) socket.send(query, port, target, () => {});
+    };
+    send();
+    const resend = setInterval(send, 500);
     const timer = setTimeout(() => finish(null), timeoutMs);
   });
 }

@@ -1,6 +1,6 @@
 {
   "name": "ponte-suporte-remoto",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "private": true,
   "description": "Suporte remoto assistido: convite com consentimento, WebRTC ponta a ponta e permissões granulares.",
   "type": "module",
@@ -18,7 +18,8 @@
     "dist": "electron-builder --publish never",
     "dist:linux": "electron-builder --linux --publish never",
     "dist:win": "electron-builder --win --publish never",
-    "dist:mac": "electron-builder --mac --publish never"
+    "dist:mac": "electron-builder --mac --publish never",
+    "test:internet": "node e2e/internet.mjs"
   },
   "dependencies": {
     "@jitsi/robotjs": "0.6.24",

@@ -261,3 +261,139 @@ test('keepalive é aceito sem erro e sem efeito colateral', async () => {
   await c.none('error', 300);
   await c.close();
 });
+
+/* ---------- Acesso sem supervisão: registro de computadores ---------- */
+
+const { generateKeyPairSync, sign } = await import('node:crypto');
+const { deviceIdForPublicKey } = await import('../server/device-identity.js');
+const { registrationPayload } = await import('../shared/device-identity.js');
+
+function newDeviceKeys() {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const pub = publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
+  return { pub, privateKey, deviceId: deviceIdForPublicKey(pub) };
+}
+
+// Conecta como computador: lê o desafio (nonce) do "hello" e registra assinando-o.
+async function registerDevice(keys, { name = 'PC de casa', tamper } = {}) {
+  const ws = new WebSocket(`ws://${base}/ws`, { headers: { origin: 'ponte://app' } });
+  const inbox = [];
+  const waiters = [];
+  ws.on('message', (raw) => {
+    const m = JSON.parse(raw.toString());
+    const i = waiters.findIndex((w) => w.type === m.type);
+    if (i >= 0) waiters.splice(i, 1)[0].resolve(m);
+    else inbox.push(m);
+  });
+  const next = (type) => {
+    const i = inbox.findIndex((m) => m.type === type);
+    if (i >= 0) return Promise.resolve(inbox.splice(i, 1)[0]);
+    return new Promise((resolve, reject) => {
+      waiters.push({ type, resolve });
+      setTimeout(() => reject(new Error(`timeout ${type}`)), 3000).unref();
+    });
+  };
+  await new Promise((r) => ws.once('open', r));
+  const hello = await next('hello');
+  const deviceId = tamper?.deviceId ?? keys.deviceId;
+  const signature = sign(null, Buffer.from(registrationPayload(tamper?.nonce ?? hello.nonce, deviceId)), keys.privateKey).toString('base64');
+  ws.send(JSON.stringify({
+    type: 'device:register', deviceId, publicKey: keys.pub, signature, name, capabilities: { screenCapture: true, inputInjection: true },
+  }));
+  return { ws, next, send: (type, data = {}) => ws.send(JSON.stringify({ type, ...data })), hello };
+}
+
+test('computador se registra provando a posse da chave; ID deriva da chave', async () => {
+  const keys = newDeviceKeys();
+  assert.match(keys.deviceId, /^[1-9]\d{8}$/);
+  const dev = await registerDevice(keys);
+  assert.equal(dev.hello.version, 2);
+  assert.ok(dev.hello.nonce.length >= 32);
+  assert.equal((await dev.next('device-registered')).deviceId, keys.deviceId);
+  dev.ws.close();
+});
+
+test('registro com ID de outro computador, assinatura de outro desafio ou chave errada é recusado', async () => {
+  const keys = newDeviceKeys();
+  const other = newDeviceKeys();
+  const a = await registerDevice(keys, { tamper: { deviceId: other.deviceId } });
+  assert.equal((await a.next('error')).code, 'invalid_device');
+  const b = await registerDevice(keys, { tamper: { nonce: 'desafio-reaproveitado-de-outra-conexao' } });
+  assert.equal((await b.next('error')).code, 'invalid_device');
+  a.ws.close();
+  b.ws.close();
+});
+
+test('técnico não encontra computador desconectado (sem revelar mais nada)', async () => {
+  const tech = await client();
+  tech.send('unattended:connect', { deviceId: '123456789', name: 'Eu', requested: { view: true } });
+  assert.equal((await tech.next('error')).code, 'device_unavailable');
+  await tech.close();
+});
+
+test('sessão sem supervisão: nasce sem permissões e só o computador pode liberá-las', async () => {
+  const keys = newDeviceKeys();
+  const dev = await registerDevice(keys);
+  await dev.next('device-registered');
+  const tech = await client();
+  tech.send('unattended:connect', { deviceId: keys.deviceId, name: 'Eu no trabalho', requested: { view: true, control: true } });
+  const accepted = await tech.next('join-accepted');
+  assert.equal(accepted.unattended, true);
+  assert.equal(accepted.hostName, 'PC de casa');
+  assert.deepEqual(accepted.granted, { view: false, control: false, files: false, chat: false, record: false });
+  const incoming = await dev.next('unattended:incoming');
+  assert.equal(incoming.sessionId, accepted.sessionId);
+  assert.equal(incoming.techName, 'Eu no trabalho');
+
+  // O técnico não consegue se dar permissões.
+  tech.send('permissions:update', { granted: { view: true, control: true } });
+  assert.equal((await tech.next('error')).code, 'not_allowed');
+
+  // O computador entra como anfitrião com o token recebido e libera o que decidir.
+  const host = await client({ origin: 'ponte://app' });
+  host.send('session:resume', { sessionId: incoming.sessionId, token: incoming.hostToken });
+  const resumed = await host.next('resumed');
+  assert.equal(resumed.role, 'host');
+  assert.equal(resumed.peerConnected, true);
+  host.send('permissions:update', { granted: { view: true, control: true } });
+  const perms = await tech.next('permissions');
+  assert.equal(perms.granted.view, true);
+  assert.equal(perms.granted.control, true);
+
+  // Encerrar pelo computador encerra para o técnico.
+  host.send('session:end');
+  assert.equal((await tech.next('session-ended')).reason, 'host_ended');
+  // Segredo do anfitrião nunca no log.
+  assert.ok(!JSON.stringify(audit).includes(incoming.hostToken));
+  await Promise.all([tech.close(), host.close()]);
+  dev.ws.close();
+});
+
+test('computador que não assume a sessão no prazo: técnico é avisado', async () => {
+  const keys = newDeviceKeys();
+  const dev = await registerDevice(keys);
+  await dev.next('device-registered');
+  const tech = await client();
+  tech.send('unattended:connect', { deviceId: keys.deviceId, name: 'Eu', requested: { view: true } });
+  await tech.next('join-accepted');
+  offset += 6_000;
+  assert.equal((await tech.next('session-ended', 4000)).reason, 'host_timeout');
+  offset -= 6_000;
+  await tech.close();
+  dev.ws.close();
+});
+
+test('motivo de encerramento: só quem compartilha informa, e só de uma lista fechada', async () => {
+  const { host, tech } = await connectedPair();
+  tech.send('session:end', { reason: 'revoked' });
+  assert.equal((await host.next('session-ended')).reason, 'tech_ended', 'técnico não escolhe o motivo');
+  await Promise.all([host.close(), tech.close()]);
+  const pair = await connectedPair();
+  pair.host.send('session:end', { reason: '<script>' });
+  assert.equal((await pair.tech.next('session-ended')).reason, 'host_ended');
+  await Promise.all([pair.host.close(), pair.tech.close()]);
+  const third = await connectedPair();
+  third.host.send('session:end', { reason: 'revoked' });
+  assert.equal((await third.tech.next('session-ended')).reason, 'revoked');
+  await Promise.all([third.host.close(), third.tech.close()]);
+});

@@ -212,7 +212,7 @@ class SessionController extends EventTarget {
 
   end(reason) {
     if (isTerminalState(this.state) || this.state === 'idle') return;
-    this.signaling.send('session:end');
+    this.signaling.send('session:end', this.role === 'host' && reason ? { reason } : {});
     this._teardown(reason ?? (this.role === 'host' ? 'host_ended' : 'tech_ended'));
   }
 
@@ -257,6 +257,11 @@ export class HostController extends SessionController {
   invite = null;
   controllable = false; // a tela compartilhada é uma tela inteira que o app consegue controlar
   controlActive = false;
+  unattended = false; // sessão sem supervisão (sem convite; liberada pela senha deste computador)
+  authenticated = false;
+  #challenge = null;
+  #authBusy = false;
+  #authTimer = null;
   #restartTimer = null;
   #controlSync = Promise.resolve();
 
@@ -368,6 +373,22 @@ export class HostController extends SessionController {
       video: { frameRate: { ideal: 15, max: 30 } },
       audio: false,
     });
+    this._useCapture(stream);
+  }
+
+  // Sem supervisão não há ninguém para escolher a tela: o app captura a tela principal, e só
+  // depois da senha verificada (o processo principal só libera essa captura nesse caso).
+  async _startUnattendedCapture() {
+    const source = await this.platform.unattendedCapture();
+    if (!source) throw new Error('no_source');
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: source.sourceId, maxFrameRate: 15 } },
+    });
+    this._useCapture(stream);
+  }
+
+  _useCapture(stream) {
     const [track] = stream.getVideoTracks();
     track.addEventListener('ended', () => this._onCaptureEnded(stream));
     this.capture = stream;
@@ -445,8 +466,65 @@ export class HostController extends SessionController {
     this.setPermissions({ ...this.granted, control: false });
   }
 
-  _onChannelOpen() {
+  async _onChannelOpen() {
     this._sendShareState();
+    if (this.unattended && !this.authenticated) {
+      const challenge = await this.platform.unattendedChallenge();
+      if (!challenge) return this.end('auth_failed');
+      this.#challenge = challenge;
+      this.link?.sendJson({ type: 'auth-challenge', ...challenge });
+    }
+  }
+
+  // Sessão sem supervisão: o servidor já pareou os dois, mas nada é liberado até a senha ser
+  // verificada por este computador (prova amarrada às impressões digitais desta conexão).
+  async startUnattended({ sessionId, hostToken, techName, requested }) {
+    if (!this._transition('unattended')) return;
+    this.unattended = true;
+    this.sessionId = sessionId;
+    this.peerName = techName || 'Alguém';
+    this.requested = { ...requested };
+    this.signaling.setResume({ sessionId, token: hostToken });
+    this._log(`${this.peerName} está tentando entrar com a senha do acesso sem supervisão.`, 'warn');
+    this.#authTimer = setTimeout(() => {
+      if (!this.authenticated) this.end('auth_timeout');
+    }, 60_000);
+    try {
+      await this.signaling.ensureConnected();
+    } catch {
+      this._teardown('signaling_lost');
+    }
+  }
+
+  async _onAuthResponse(msg) {
+    if (!this.unattended || this.authenticated || this.#authBusy || msg.id !== this.#challenge?.id) return;
+    this.#authBusy = true;
+    const binding = this.link.fingerprintBinding();
+    const result = await this.platform.unattendedVerify({ challengeId: msg.id, mac: msg.mac, techId: msg.techId, binding });
+    this.link?.sendJson({
+      type: 'auth-result', id: msg.id, ok: result.ok, error: result.error ?? '', retryAfter: result.retryAfter ?? 0,
+    });
+    if (!result.ok) {
+      this._log('Tentativa de acesso sem supervisão recusada.', 'error');
+      setTimeout(() => this.end(`auth_${result.error}`), 300);
+      return;
+    }
+    clearTimeout(this.#authTimer);
+    this.authenticated = true;
+    this.startedAt = Date.now();
+    this._log(`${this.peerName} entrou com a senha do acesso sem supervisão.`, 'warn');
+    const granted = resolveGrant({ requested: this.requested, granted: result.permissions, capabilities: this.capabilities });
+    if (granted.view) {
+      try {
+        await this._startUnattendedCapture();
+      } catch {
+        Object.assign(granted, { view: false, control: false, record: false });
+        this._log('Não foi possível capturar a tela automaticamente.', 'error');
+      }
+    }
+    this._applyPermissions(granted);
+    this.signaling.send('permissions:update', { granted });
+    this._emit('unattended-auth', { ok: true });
   }
 
   async setPaused(paused) {
@@ -490,6 +568,10 @@ export class HostController extends SessionController {
       if (this.controlActive) this.platform.injectInput(msg);
       return;
     }
+    if (msg.type === 'auth-response') {
+      this._onAuthResponse(msg);
+      return;
+    }
     if (msg.type !== 'recording-state') return;
     if (msg.active && !this.can('record')) {
       // O cliente oficial nunca faz isso; se acontecer, o outro lado foi modificado.
@@ -529,12 +611,19 @@ export class HostController extends SessionController {
   }
 
   _onResumed(msg) {
+    if (this.unattended && !this.link) {
+      this.requested = { ...msg.requested };
+      this._createLink().makeOffer();
+      return;
+    }
     if (msg.peerConnected) this._onPeerBack();
   }
 
   _cleanupMedia() {
     clearInterval(this.#restartTimer);
     this.#restartTimer = null;
+    clearTimeout(this.#authTimer);
+    if (this.unattended) this.platform?.unattendedEnded(this.endReason);
     if (this.controlActive || this.platform) {
       this.controlActive = false;
       this.platform?.setControlActive(false);
@@ -552,8 +641,40 @@ export class ViewerController extends SessionController {
   hostName = '';
   recorder = new SessionRecorder();
 
-  constructor({ signaling }) {
+  unattended = false;
+  authError = null;
+  #password = null;
+
+  constructor({ signaling, platform = null }) {
     super({ role: 'viewer', signaling });
+    this.platform = platform;
+  }
+
+  // Conectar a um computador com acesso sem supervisão. A senha fica só na memória até virar
+  // a prova (no processo principal) e é descartada; nunca é enviada nem guardada.
+  async connectUnattended({ deviceId, password, name, requested }) {
+    if (!this._transition('tech_join')) return;
+    this.unattended = true;
+    this.#password = password;
+    try {
+      await this.signaling.ensureConnected();
+    } catch {
+      this.#password = null;
+      this._transition('error');
+      this._emit('notice', { code: 'signaling_unreachable' });
+      return;
+    }
+    this.signaling.send('unattended:connect', { deviceId, name, requested });
+  }
+
+  async _onAuthChallenge(msg) {
+    if (!this.unattended || !this.#password) return;
+    const binding = this.link.fingerprintBinding();
+    const proof = await this.platform?.unattendedProof(msg, binding, this.#password);
+    this.#password = null;
+    if (!proof) return this.end('auth_error');
+    this.link?.sendJson({ type: 'auth-response', id: msg.id, mac: proof.mac, techId: proof.techId });
+    this._log('Prova da senha enviada (a senha em si não sai deste computador).');
   }
 
   get recording() {
@@ -601,6 +722,7 @@ export class ViewerController extends SessionController {
 
   _onServerError(code) {
     if (this.state === 'joining') {
+      this.#password = null;
       this._transition('error');
       this._emit('join-error', { code });
       return;
@@ -615,7 +737,8 @@ export class ViewerController extends SessionController {
     this.capabilities = { ...msg.capabilities };
     this.granted = { ...msg.granted };
     this.requested = { ...msg.requested };
-    this.startedAt = Date.now();
+    // Sem supervisão, a sessão só "começa" depois da senha aceita pelo computador.
+    if (!this.unattended) this.startedAt = Date.now();
     this._setIce(msg);
     this.signaling.setResume({ sessionId: msg.sessionId, token: msg.token });
     const link = this._createLink();
@@ -628,6 +751,21 @@ export class ViewerController extends SessionController {
   }
 
   _handleData(msg) {
+    if (msg.type === 'auth-challenge') {
+      this._onAuthChallenge(msg);
+      return;
+    }
+    if (msg.type === 'auth-result') {
+      if (msg.ok) {
+        this.startedAt = Date.now();
+        this._log('Acesso autorizado pelo computador.');
+        this._emit('unattended-auth', { ok: true });
+      } else {
+        this.authError = msg;
+        this._teardown(`auth_${msg.error || 'failed'}`);
+      }
+      return;
+    }
     if (msg.type !== 'share-state') return;
     this.hostPaused = msg.paused;
     this.hostControlActive = msg.controlActive;
@@ -674,6 +812,7 @@ export class ViewerController extends SessionController {
   }
 
   _cleanupMedia() {
+    this.#password = null;
     if (this.recording) this.stopRecording();
     this.remoteStream = null;
   }

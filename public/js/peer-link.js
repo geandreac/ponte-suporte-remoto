@@ -5,7 +5,7 @@
 //   tela é só `replaceTrack`, sem renegociar.
 // - Chat, avisos e arquivos usam um único canal de dados ordenado e confiável.
 
-import { computeVerificationCode } from '../../shared/verification.js';
+import { computeVerificationCode, fingerprintBinding } from '../../shared/verification.js';
 import { LIMITS } from '../../shared/protocol.js';
 
 const MAX_QUEUED_CANDIDATES = 200;
@@ -165,6 +165,10 @@ export class PeerLink extends EventTarget {
       ch.addEventListener('bufferedamountlow', done);
       ch.addEventListener('close', fail, { once: true });
     });
+  }
+
+  fingerprintBinding() {
+    return fingerprintBinding(this.#pc.localDescription?.sdp, this.#pc.remoteDescription?.sdp);
   }
 
   verificationCode() {

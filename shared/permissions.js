@@ -89,6 +89,7 @@ const INCOMING_RULES = {
     'file-cancel': null,
     'recording-state': null,
     input: 'control',
+    'auth-response': null,
   },
   viewer: {
     chat: 'chat',
@@ -97,6 +98,8 @@ const INCOMING_RULES = {
     'file-complete': 'files',
     'file-cancel': null,
     'share-state': null,
+    'auth-challenge': null,
+    'auth-result': null,
   },
 };
 

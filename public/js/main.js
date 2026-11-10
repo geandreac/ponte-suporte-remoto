@@ -5,6 +5,7 @@ import { endMessage, errorMessage, STATE_TEXT } from './messages.js';
 import { SessionRecorder } from './recorder.js';
 import { canCaptureScreen, HostController, ViewerController } from './session-controller.js';
 import { startRemoteInput } from './remote-input.js';
+import { setupUnattendedSettings } from './unattended-ui.js';
 import { SignalingClient } from './signaling-client.js';
 import {
   $, closeDialog, confirmDialog, countdown, currentView, el, formatSize, formatTime, icon, openDialog,
@@ -45,6 +46,7 @@ function inFlow() {
 
 function syncNav() {
   const flow = inFlow();
+  desktop?.reportFlow(flow);
   if (updateStatus) renderUpdate(updateStatus);
   document.body.dataset.flow = flow ? 'active' : 'idle';
   $('nav-session').hidden = !flow;
@@ -103,14 +105,36 @@ function createSignaling(url) {
 }
 
 // Integração do controle remoto (só no app de computador, quando o sistema permite).
+// Integração com o app de computador (controle remoto e acesso sem supervisão). Ausente na web.
 function controlPlatform() {
-  if (!desktop || !desktopInfo?.input?.available) return null;
+  if (!desktop) return null;
   return {
-    inputInjection: true,
+    inputInjection: Boolean(desktopInfo?.input?.available),
     setControlActive: (active, peerName) => desktop.setControlActive(active, peerName),
     injectInput: (msg) => desktop.injectInput(msg),
+    unattendedChallenge: () => desktop.unattendedChallenge(),
+    unattendedVerify: (input) => desktop.unattendedVerify(input),
+    unattendedCapture: () => desktop.unattendedCapture(),
+    unattendedEnded: (reason) => desktop.unattendedEnded(reason),
+    unattendedProof: (challenge, binding, password) => desktop.unattendedProof(challenge, binding, password),
   };
 }
+
+/* ================= Acesso sem supervisão: este computador recebe uma sessão ================= */
+
+let resolveDesktopReady;
+const desktopReady = new Promise((resolve) => { resolveDesktopReady = resolve; });
+
+// Registrado já no carregamento: o processo principal envia o pedido assim que a janela abre.
+desktop?.onUnattendedIncoming(async (info) => {
+  await desktopReady;
+  const host = new HostController({ signaling: createSignaling(info.url), platform: controlPlatform() });
+  useController(host);
+  host.startUnattended(info);
+});
+desktop?.onUnattendedRevoked(({ reason }) => {
+  if (controller?.role === 'host' && controller.unattended) controller.end(reason);
+});
 
 /* ================= Receber suporte ================= */
 
@@ -208,9 +232,73 @@ $('form-tech').addEventListener('submit', async (e) => {
   viewer.join({ sessionId, secret, name, requested });
 });
 
+/* ================= Prestar suporte: computador sem supervisão ================= */
+
+setupTabs(document.querySelector('.mode-switch'));
+
+function renderUnattendedConnectForm() {
+  renderPermissionChoices($('ua-perms'), {
+    name: 'uareq',
+    options: {
+      view: { checked: true },
+      control: { checked: true, hint: 'Clicar e digitar no computador (se o dono permitiu).' },
+      chat: { checked: false },
+    },
+  });
+  const web = !desktop;
+  $('ua-web-note').hidden = !web;
+  for (const input of $('form-unattended').querySelectorAll('input, button')) input.disabled = web;
+}
+
+function showUaError(text) {
+  $('ua-form-error').textContent = text;
+  $('ua-form-error').hidden = !text;
+}
+
+$('form-unattended').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!desktop) return;
+  showUaError('');
+  const deviceId = normalizeSessionId($('ua-device').value);
+  const password = $('ua-password').value;
+  const name = sanitizeName($('ua-name').value);
+  const address = $('ua-address').value.trim();
+  const requested = readPermissionChoices($('ua-perms'));
+  const checks = [
+    [$('ua-device'), $('err-ua-device'), SESSION_ID_PATTERN.test(deviceId) ? '' : 'Digite os 9 números do ID do computador.'],
+    [$('ua-password'), $('err-ua-password'), password ? '' : 'Digite a senha definida naquele computador.'],
+    [$('ua-name'), $('err-ua-name'), name ? '' : 'Digite seu nome: ele aparece no aviso do outro computador.'],
+  ];
+  let firstInvalid = null;
+  for (const [input, err, msg] of checks) {
+    setFieldError(input, err, msg);
+    if (msg && !firstInvalid) firstInvalid = input;
+  }
+  if (firstInvalid) return firstInvalid.focus();
+  if (!Object.values(requested).some(Boolean)) return showUaError(errorMessage('no_permissions_requested'));
+
+  setBusy($('btn-ua-connect'), true, 'Procurando o computador…');
+  const found = await desktop.unattendedLocate(deviceId, address);
+  if (!found.ok) {
+    setBusy($('btn-ua-connect'), false);
+    if (found.error === 'invalid_address') {
+      setFieldError($('ua-address'), $('err-ua-address'), 'Endereço inválido. Exemplo: 192.168.0.10');
+      return $('ua-address').focus();
+    }
+    return showUaError(errorMessage(found.error === 'not_found' ? 'device_not_found' : found.error));
+  }
+  setBusy($('btn-ua-connect'), true, 'Conectando…');
+  // A senha sai do campo agora e fica só na memória até virar a prova (depois é descartada).
+  $('ua-password').value = '';
+  const viewer = new ViewerController({ signaling: createSignaling(found.url), platform: controlPlatform() });
+  useController(viewer);
+  viewer.connectUnattended({ deviceId, password, name, requested });
+});
+
 /* ================= Histórico ================= */
 
 const END_SHORT = {
+  revoked: 'Acesso revogado', disabled: 'Acesso desativado',
   host_ended: 'Encerrada', tech_ended: 'Encerrada', connection_failed: 'Falha de conexão',
   host_timeout: 'Conexão perdida', tech_timeout: 'Conexão perdida', max_duration: 'Tempo máximo',
   policy_violation: 'Encerrada por segurança', signaling_lost: 'Conexão perdida', session_lost: 'Conexão perdida',
@@ -258,6 +346,8 @@ async function setupDesktop() {
   for (const n of document.querySelectorAll('[data-desktop-only]')) n.hidden = false;
   const settings = await desktop.getSettings();
   desktopInfo = settings;
+  setupUnattendedSettings(desktop);
+  resolveDesktopReady();
   $('lan-address-box').hidden = !lanMode();
   renderControlSupport();
   setupUpdates(settings);
@@ -367,7 +457,10 @@ function onState(state) {
   status.dataset.kind = STATE_KIND[state] ?? 'waiting';
   status.querySelector('.status-label').textContent = STATE_TEXT[state] ?? '';
   if (state !== 'creating') setBusy($('btn-create-invite'), false);
-  if (state !== 'joining') setBusy($('btn-join'), false);
+  if (state !== 'joining') {
+    setBusy($('btn-join'), false);
+    setBusy($('btn-ua-connect'), false);
+  }
 
   if (state === 'idle') {
     go(controller?.role === 'viewer' ? 'view-tech' : 'view-host', { focus: false });
@@ -537,6 +630,10 @@ function bindViewer(c) {
   });
   c.addEventListener('join-error', (e) => {
     const code = e.detail.code;
+    if (c.unattended) {
+      setBusy($('btn-ua-connect'), false);
+      return showUaError(errorMessage(code));
+    }
     if (code === 'invalid_credentials') {
       setFieldError($('tech-secret'), $('err-secret'), errorMessage(code));
       $('tech-secret').focus();
@@ -597,7 +694,7 @@ $('btn-ask-cancel').addEventListener('click', () => closeDialog($('dlg-ask-perms
 /* ---------- Sessão (comum) ---------- */
 
 let unread = 0;
-const tabs = setupTabs(document.querySelector('.segmented'), (id) => {
+const tabs = setupTabs(document.querySelector('.inspector .segmented'), (id) => {
   if (id === 'tab-chat') {
     unread = 0;
     updateChatBadge();
@@ -936,7 +1033,8 @@ function onEnded(reason) {
   const kind = failed ? 'error' : (notConnected || ['policy_violation', 'too_many_attempts'].includes(reason) ? 'warning' : 'ok');
   $('ended-icon').dataset.kind = kind;
   $('ended-icon').querySelector('use').setAttribute('href', kind === 'ok' ? '#i-check' : '#i-warning');
-  $('ended-reason').textContent = endMessage(reason, c.role);
+  const retry = c.authError?.retryAfter;
+  $('ended-reason').textContent = endMessage(reason, c.role) + (retry ? ` Tente de novo em ${retry} s.` : '');
   go('view-ended');
   c.signaling.close();
   stopControlling();
@@ -1118,5 +1216,6 @@ async function onUpdateAction() {
 
 renderCaptureSupport();
 renderTechPermissions();
+renderUnattendedConnectForm();
 setupDesktop();
 route();

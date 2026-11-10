@@ -7,10 +7,10 @@ export const STATES = Object.freeze([
 ]);
 
 const TRANSITIONS = {
-  idle: { host_create: 'creating', tech_join: 'joining' },
+  idle: { host_create: 'creating', tech_join: 'joining', unattended: 'connecting' },
   creating: { created: 'waiting', error: 'idle' },
   waiting: { peer_joined: 'connecting', end: 'ended' },
-  joining: { pending: 'awaiting_approval', error: 'idle' },
+  joining: { pending: 'awaiting_approval', accepted: 'connecting', error: 'idle' },
   awaiting_approval: { accepted: 'connecting', rejected: 'ended', end: 'ended' },
   connecting: { connected: 'connected', connection_lost: 'reconnecting', fail: 'failed', end: 'ended' },
   connected: { connection_lost: 'reconnecting', end: 'ended', fail: 'failed' },

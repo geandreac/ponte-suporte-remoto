@@ -18,6 +18,9 @@ const ERRORS = {
   control_no_target: 'Para liberar o controle, compartilhe a tela inteira (não uma janela).',
   control_accessibility: 'Permita o Ponte em Ajustes do Sistema › Privacidade e Segurança › Acessibilidade e ligue o controle de novo.',
   control_unavailable: 'O controle remoto não está disponível neste computador.',
+  device_unavailable: 'Computador não encontrado. Confira o ID e se ele está ligado, com o Ponte aberto e o acesso sem supervisão ativado.',
+  device_not_found: 'Não encontramos esse computador na rede local e não há servidor da internet configurado (Ajustes › Servidor da organização).',
+  invalid_device: 'ID do computador inválido.',
 };
 
 export function errorMessage(code) {
@@ -40,6 +43,15 @@ export function endMessage(reason, role) {
     case 'connection_failed': return 'Não foi possível manter a conexão entre os dispositivos. Redes com firewall ou NAT restritivo exigem um servidor TURN configurado.';
     case 'session_lost': return 'A sessão não existe mais no servidor (pode ter sido reiniciado).';
     case 'signaling_lost': return 'Perdemos a conexão com o servidor e não foi possível reconectar.';
+    case 'auth_wrong_password': return host ? 'Alguém tentou entrar sem supervisão com uma senha incorreta. A tentativa foi bloqueada e registrada.' : 'Senha incorreta.';
+    case 'auth_too_soon': return host ? 'Uma nova tentativa chegou cedo demais e foi recusada.' : 'Muitas tentativas seguidas: aguarde antes de tentar de novo.';
+    case 'auth_locked': return host ? 'Acesso sem supervisão bloqueado por excesso de senhas incorretas.' : 'O acesso a este computador está bloqueado por excesso de tentativas. O dono precisa desbloquear (ou aguarde).';
+    case 'auth_device_not_allowed': return host ? 'Um dispositivo não autorizado tentou entrar e foi recusado.' : 'Este dispositivo não está autorizado. O dono do computador precisa permitir novos dispositivos.';
+    case 'auth_timeout': return 'A autenticação não foi concluída a tempo.';
+    case 'auth_expired': case 'auth_error': case 'auth_failed': case 'auth_denied': case 'auth_not_enabled':
+      return 'Não foi possível autenticar o acesso sem supervisão.';
+    case 'revoked': return host ? 'Você revogou o acesso deste dispositivo.' : 'O dono do computador revogou o acesso deste dispositivo.';
+    case 'disabled': return host ? 'O acesso sem supervisão foi desativado.' : 'O acesso sem supervisão foi desativado naquele computador.';
     case 'policy_violation': return 'A sessão foi encerrada porque o outro lado tentou usar um recurso não autorizado.';
     default: return 'A sessão foi encerrada.';
   }

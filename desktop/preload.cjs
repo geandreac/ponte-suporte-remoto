@@ -53,4 +53,44 @@ contextBridge.exposeInMainWorld('ponteDesktop', {
   installUpdate: () => ipcRenderer.invoke('ponte:update-install'),
   openReleases: () => ipcRenderer.invoke('ponte:open-releases'),
   setAutoUpdate: (enabled) => ipcRenderer.invoke('ponte:set-auto-update', enabled === true),
+  reportFlow: (active) => ipcRenderer.send('ponte:flow', active === true),
+
+  // Acesso sem supervisão — proprietário
+  unattendedStatus: () => ipcRenderer.invoke('ponte:unattended-status'),
+  unattendedEnable: (input) => ipcRenderer.invoke('ponte:unattended-enable', {
+    confirm: input?.confirm === true,
+    password: String(input?.password ?? ''),
+    deviceName: String(input?.deviceName ?? ''),
+    permissions: Object.fromEntries(['view', 'control', 'files', 'chat', 'record'].map((p) => [p, input?.permissions?.[p] === true])),
+  }),
+  unattendedChangePassword: (password) => ipcRenderer.invoke('ponte:unattended-change-password', String(password ?? '')),
+  unattendedUpdate: (input) => ipcRenderer.invoke('ponte:unattended-update', {
+    ...(typeof input?.allowNewDevices === 'boolean' ? { allowNewDevices: input.allowNewDevices } : {}),
+    ...(input?.permissions ? {
+      permissions: Object.fromEntries(['view', 'control', 'files', 'chat', 'record'].map((p) => [p, input.permissions[p] === true])),
+    } : {}),
+  }),
+  unattendedRevoke: (techId) => ipcRenderer.invoke('ponte:unattended-revoke', String(techId ?? '')),
+  unattendedDisable: () => ipcRenderer.invoke('ponte:unattended-disable'),
+  unattendedUnlock: () => ipcRenderer.invoke('ponte:unattended-unlock'),
+  setAutostart: (enabled) => ipcRenderer.invoke('ponte:autostart', enabled === true),
+  onUnattendedChanged: listen('ponte:unattended-changed'),
+
+  // Acesso sem supervisão — janela que atende a sessão
+  onUnattendedIncoming: listen('ponte:unattended-incoming'),
+  onUnattendedRevoked: listen('ponte:unattended-revoked'),
+  unattendedChallenge: () => ipcRenderer.invoke('ponte:unattended-challenge'),
+  unattendedVerify: (input) => ipcRenderer.invoke('ponte:unattended-verify', {
+    challengeId: String(input?.challengeId ?? ''), mac: String(input?.mac ?? ''),
+    techId: String(input?.techId ?? ''), binding: String(input?.binding ?? ''),
+  }),
+  unattendedCapture: () => ipcRenderer.invoke('ponte:unattended-capture'),
+  unattendedEnded: (reason) => ipcRenderer.invoke('ponte:unattended-ended', String(reason ?? '')),
+
+  // Acesso sem supervisão — quem conecta
+  unattendedLocate: (deviceId, address) => ipcRenderer.invoke('ponte:unattended-locate', String(deviceId ?? ''), String(address ?? '')),
+  unattendedProof: (challenge, binding, password) => ipcRenderer.invoke('ponte:unattended-proof', {
+    id: String(challenge?.id ?? ''), salt: String(challenge?.salt ?? ''), N: Number(challenge?.N), r: Number(challenge?.r),
+    p: Number(challenge?.p), nonce: String(challenge?.nonce ?? ''), deviceId: String(challenge?.deviceId ?? ''),
+  }, String(binding ?? ''), String(password ?? '')),
 });

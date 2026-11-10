@@ -22,6 +22,8 @@ export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
+const END_REASONS_FROM_HOST = new Set(['revoked', 'disabled', 'auth_failed', 'auth_timeout', 'policy_violation']);
+
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const ok = (value) => ({ ok: true, value });
 const fail = (error) => ({ ok: false, error });
@@ -108,8 +110,31 @@ export function validateClientMessage(msg) {
     }
 
     case 'session:end':
+      // Motivo opcional, só de uma lista fechada (mostrado ao outro lado).
+      return ok({ type, reason: END_REASONS_FROM_HOST.has(msg.reason) ? msg.reason : null });
     case 'keepalive':
       return ok({ type });
+
+    case 'device:register': {
+      const b64 = /^[A-Za-z0-9+/]+={0,2}$/;
+      if (typeof msg.deviceId !== 'string' || !SESSION_ID_PATTERN.test(msg.deviceId)) return fail('invalid_device');
+      if (typeof msg.publicKey !== 'string' || msg.publicKey.length > 200 || !b64.test(msg.publicKey)) return fail('invalid_device');
+      if (typeof msg.signature !== 'string' || msg.signature.length > 200 || !b64.test(msg.signature)) return fail('invalid_device');
+      return ok({
+        type, deviceId: msg.deviceId, publicKey: msg.publicKey, signature: msg.signature,
+        name: sanitizeName(msg.name ?? ''), capabilities: normalizeCapabilities(msg.capabilities),
+      });
+    }
+
+    case 'unattended:connect': {
+      const deviceId = normalizeSessionId(msg.deviceId);
+      const name = sanitizeName(msg.name);
+      const requested = normalizePermissions(msg.requested);
+      if (!SESSION_ID_PATTERN.test(deviceId)) return fail('invalid_device');
+      if (!name) return fail('invalid_name');
+      if (!hasAny(requested)) return fail('no_permissions_requested');
+      return ok({ type, deviceId, name, requested });
+    }
 
     case 'session:resume': {
       const sessionId = normalizeSessionId(msg.sessionId);
@@ -182,6 +207,27 @@ export function validateDataMessage(msg) {
       return validId ? ok({ type, id: msg.id }) : fail('invalid_message');
     case 'input':
       return validateInput(msg);
+    // Autenticação do acesso sem supervisão (ver docs/ACESSO-SEM-SUPERVISAO.md).
+    case 'auth-challenge': {
+      const b64 = /^[A-Za-z0-9+/]{16,88}={0,2}$/;
+      const pow2 = Number.isInteger(msg.N) && msg.N >= 2 ** 14 && msg.N <= 2 ** 18 && (msg.N & (msg.N - 1)) === 0;
+      if (!validId || !pow2 || !Number.isInteger(msg.r) || msg.r < 1 || msg.r > 16
+        || !Number.isInteger(msg.p) || msg.p < 1 || msg.p > 4
+        || typeof msg.salt !== 'string' || !b64.test(msg.salt) || typeof msg.nonce !== 'string' || !b64.test(msg.nonce)
+        || typeof msg.deviceId !== 'string' || !SESSION_ID_PATTERN.test(msg.deviceId)) return fail('invalid_message');
+      return ok({ type, id: msg.id, salt: msg.salt, N: msg.N, r: msg.r, p: msg.p, nonce: msg.nonce, deviceId: msg.deviceId });
+    }
+    case 'auth-response':
+      if (!validId || typeof msg.mac !== 'string' || !/^[A-Za-z0-9+/]{43}=$/.test(msg.mac)
+        || typeof msg.techId !== 'string' || !ID_PATTERN.test(msg.techId)) return fail('invalid_message');
+      return ok({ type, id: msg.id, mac: msg.mac, techId: msg.techId });
+    case 'auth-result':
+      if (!validId || typeof msg.ok !== 'boolean') return fail('invalid_message');
+      return ok({
+        type, id: msg.id, ok: msg.ok,
+        error: typeof msg.error === 'string' ? msg.error.slice(0, 40) : '',
+        retryAfter: Number.isInteger(msg.retryAfter) && msg.retryAfter >= 0 ? Math.min(msg.retryAfter, 86_400) : 0,
+      });
     default:
       return fail('unknown_type');
   }

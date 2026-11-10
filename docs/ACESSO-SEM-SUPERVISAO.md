@@ -1,7 +1,17 @@
-# Acessar computador sem supervisão — especificação (escopo futuro)
+# Acessar computador sem supervisão — especificação
 
-> **Situação: planejado, ainda não implementado.** Nada neste documento existe no app hoje.
-> O fluxo atual é sempre **assistido**: alguém no computador remoto aceita cada conexão.
+> **Situação (0.3.0): implementado no app de computador**, na rede local e pela internet.
+> Detalhes da implementação, implantação na Oracle e validação: [MIGRACAO-ORACLE.md](MIGRACAO-ORACLE.md).
+>
+> **Diferenças em relação ao plano abaixo:**
+> - **TOTP (app autenticador) não foi implementado.** A camada adicional disponível é a lista de
+>   **dispositivos autorizados** com a opção "Aceitar novos dispositivos" (desligada, só os já
+>   autorizados podem tentar a senha).
+> - Confirmação com Touch ID no macOS não foi implementada; a proteção é bloquear qualquer
+>   mudança de segurança enquanto houver sessão.
+> - O ID e a senha valem para conexões pela rede local (descoberta UDP + TLS com certificado fixado)
+>   e pelo servidor da internet; a prova de senha é a mesma nos dois caminhos.
+> - Na versão web (navegador) só existe o fluxo assistido.
 
 ## Objetivo
 

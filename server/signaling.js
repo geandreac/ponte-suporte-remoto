@@ -7,6 +7,8 @@ import { listGranted } from '../shared/permissions.js';
 import { validateClientMessage } from '../shared/protocol.js';
 import { END_REASONS } from './session-store.js';
 import { createRateLimiter } from './rate-limiter.js';
+import { randomToken } from './crypto-utils.js';
+import { verifyRegistration } from './device-identity.js';
 
 const MAX_PAYLOAD = 64 * 1024;
 const HEARTBEAT_MS = 15_000;
@@ -49,6 +51,8 @@ export function attachSignaling({ server, store, ice, audit, config, now = Date.
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
   const rooms = new Map(); // sessionId -> { host, tech, pending }
   const conns = new Set();
+  const devices = new Map(); // deviceId -> conexão do computador com acesso sem supervisão
+  const deviceLimits = createRateLimiter({ capacity: 10, refillPerSecond: 1 / 30, now });
 
   const limitSpec = { ...DEFAULT_RATE_LIMITS, ...config.rateLimits };
   const limits = Object.fromEntries(
@@ -208,7 +212,7 @@ export function attachSignaling({ server, store, ice, audit, config, now = Date.
       audit.log('permissions_requested', { sessionId: conn.sessionId, asked: listGranted(msg.requested) });
     },
 
-    'session:end'(conn) {
+    'session:end'(conn, msg) {
       if (conn.role === 'pending') {
         const room = rooms.get(conn.sessionId);
         if (store.cancelRequest(conn.sessionId, conn.requestId).ok && room) {
@@ -219,7 +223,8 @@ export function attachSignaling({ server, store, ice, audit, config, now = Date.
         return;
       }
       if (conn.role !== 'host' && conn.role !== 'tech') return sendError(conn, 'not_allowed');
-      const reason = conn.role === 'host' ? END_REASONS.HOST_ENDED : END_REASONS.TECH_ENDED;
+      // Quem compartilha pode informar o motivo (ex.: acesso revogado); quem presta suporte, não.
+      const reason = conn.role === 'host' ? (msg?.reason ?? END_REASONS.HOST_ENDED) : END_REASONS.TECH_ENDED;
       const { sessionId } = conn;
       store.end(sessionId, reason);
       closeRoom(sessionId, reason);
@@ -227,6 +232,62 @@ export function attachSignaling({ server, store, ice, audit, config, now = Date.
 
     // Sinal periódico do cliente: só mantém a conexão (e servidores gratuitos) ativos.
     keepalive() {},
+
+    // Computador com acesso sem supervisão anuncia que está disponível. Prova a posse da chave
+    // assinando o desafio desta conexão; o ID deriva da chave, então não dá para usar o de outro.
+    'device:register'(conn, msg) {
+      if (conn.role) return sendError(conn, 'already_in_session');
+      if (!limits.resume.take(conn.ip)) return sendError(conn, 'rate_limited');
+      if (!verifyRegistration({ ...msg, nonce: conn.nonce })) {
+        audit.log('device_register_failed', { deviceId: msg.deviceId, ip: conn.ip });
+        return sendError(conn, 'invalid_device');
+      }
+      const previous = devices.get(msg.deviceId);
+      if (previous && previous !== conn) {
+        previous.deviceId = null;
+        previous.ws.close(4001, 'replaced');
+      }
+      conn.deviceId = msg.deviceId;
+      conn.deviceName = msg.name;
+      conn.deviceCapabilities = msg.capabilities;
+      devices.set(msg.deviceId, conn);
+      send(conn, 'device-registered', { deviceId: msg.deviceId });
+      audit.log('device_registered', { deviceId: msg.deviceId, ip: conn.ip });
+    },
+
+    // Técnico pede para entrar num computador sem supervisão. O servidor só aproxima os dois:
+    // a senha é verificada pelo próprio computador, dentro do canal cifrado ponta a ponta.
+    'unattended:connect'(conn, msg) {
+      if (conn.role || conn.deviceId) return sendError(conn, 'already_in_session');
+      if (!limits.join.take(conn.ip) || !deviceLimits.take(msg.deviceId)) {
+        audit.log('unattended_rate_limited', { deviceId: msg.deviceId, ip: conn.ip });
+        return sendError(conn, 'rate_limited');
+      }
+      const device = devices.get(msg.deviceId);
+      if (!device) return sendError(conn, 'device_unavailable');
+      const result = store.createUnattendedSession({
+        deviceName: device.deviceName, capabilities: device.deviceCapabilities, techName: msg.name, requested: msg.requested,
+      });
+      if (!result.ok) return sendError(conn, result.error);
+      const { session, hostToken, techToken } = result;
+      conn.role = 'tech';
+      conn.sessionId = session.id;
+      rooms.set(session.id, { host: null, tech: conn, pending: null });
+      send(device, 'unattended:incoming', {
+        sessionId: session.id, hostToken, techName: msg.name, requested: session.requested,
+      });
+      send(conn, 'join-accepted', {
+        sessionId: session.id,
+        token: techToken,
+        hostName: session.hostName,
+        granted: session.granted,
+        requested: session.requested,
+        capabilities: session.capabilities,
+        unattended: true,
+        ...iceFor(session.id, 'tech'),
+      });
+      audit.log('unattended_session_created', { sessionId: session.id, deviceId: msg.deviceId, ip: conn.ip });
+    },
 
     'session:resume'(conn, msg) {
       if (conn.role) return sendError(conn, 'already_in_session');
@@ -263,7 +324,7 @@ export function attachSignaling({ server, store, ice, audit, config, now = Date.
 
   wss.on('connection', (ws, req, ip) => {
     const conn = {
-      ws, ip, role: null, sessionId: null, requestId: null, alive: true,
+      ws, ip, role: null, sessionId: null, requestId: null, alive: true, nonce: randomToken(24), deviceId: null,
       limiter: createRateLimiter({ capacity: 200, refillPerSecond: 50, now }),
     };
     conns.add(conn);
@@ -284,6 +345,7 @@ export function attachSignaling({ server, store, ice, audit, config, now = Date.
 
     ws.on('close', () => {
       conns.delete(conn);
+      if (conn.deviceId && devices.get(conn.deviceId) === conn) devices.delete(conn.deviceId);
       const { role, sessionId } = conn;
       const room = sessionId ? rooms.get(sessionId) : null;
       if (!room) return;
@@ -299,7 +361,7 @@ export function attachSignaling({ server, store, ice, audit, config, now = Date.
       }
     });
 
-    send(conn, 'hello', { version: 1 });
+    send(conn, 'hello', { version: 2, nonce: conn.nonce });
   });
 
   // Detecta conexões mortas (rede caiu sem fechar o socket) para acionar o prazo de reconexão.

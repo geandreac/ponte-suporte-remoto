@@ -4,3 +4,5 @@ node_modules/
 certs/
 e2e/output/
 dist/
+.env
+deploy/oracle/turnserver.conf

@@ -67,8 +67,12 @@ try {
     assert.equal(probe.bridge, [
       'checkForUpdates', 'chooseSource', 'downloadUpdate', 'getSettings', 'injectInput', 'installUpdate',
       'lanDiscover', 'lanHostStart', 'lanHostStop', 'lanInviteUsed', 'minimizeOverlay', 'onCaptureTarget',
-      'onControlRevoked', 'onNavigate', 'onOverlay', 'onSourceRequest', 'onUpdateStatus', 'openDocs', 'openReleases', 'platform',
-      'revokeFromOverlay', 'saveSettings', 'setAutoUpdate', 'setControlActive', 'signalingUrl',
+      'onControlRevoked', 'onNavigate', 'onOverlay', 'onSourceRequest', 'onUnattendedChanged', 'onUnattendedIncoming',
+      'onUnattendedRevoked', 'onUpdateStatus', 'openDocs', 'openReleases', 'platform', 'reportFlow',
+      'revokeFromOverlay', 'saveSettings', 'setAutoUpdate', 'setAutostart', 'setControlActive', 'signalingUrl',
+      'unattendedCapture', 'unattendedChallenge', 'unattendedChangePassword', 'unattendedDisable', 'unattendedEnable',
+      'unattendedEnded', 'unattendedLocate', 'unattendedProof', 'unattendedRevoke', 'unattendedStatus',
+      'unattendedUnlock', 'unattendedUpdate', 'unattendedVerify',
     ].join(','));
     const csp = await host.evaluate(async () => (await fetch('index.html')).headers.get('content-security-policy'));
     assert.match(csp, /default-src 'self'/);
@@ -292,6 +296,158 @@ try {
       port = await hook('lanPort');
     }
     assert.equal(port, null, 'rede local fechada ao fim da sessão');
+  });
+
+  /* ---------- Acesso sem supervisão ---------- */
+  const UA_PASSWORD = 'Casa-Rio#2026!azul';
+  let deviceId = '';
+  const watch = (page) => page.on('pageerror', (e) => errors.push(e.message));
+
+  async function connectUnattended(password, { name = 'Notebook do trabalho', address = '' } = {}) {
+    if (await tech.isVisible('#btn-home')) await tech.click('#btn-home');
+    await tech.click('.nav-item[data-nav=tech]');
+    await tech.click('#tab-mode-unattended');
+    await tech.fill('#ua-device', deviceId);
+    await tech.fill('#ua-password', password);
+    await tech.fill('#ua-name', name);
+    if (address) {
+      if (!(await tech.isVisible('#ua-address'))) await tech.click('#panel-unattended-connect .lan-address summary');
+      await tech.fill('#ua-address', address);
+    } else if (await tech.isVisible('#ua-address')) {
+      await tech.fill('#ua-address', '');
+    }
+    const opened = app.waitForEvent('window', { timeout: 20000 }).catch(() => null);
+    await tech.click('#btn-ua-connect');
+    const deviceWin = await opened;
+    if (deviceWin) watch(deviceWin);
+    return deviceWin;
+  }
+
+  await step('sem supervisão: desativado por padrão; ativar exige confirmação explícita e senha forte', async () => {
+    await host.click('.nav-item[data-nav=settings]');
+    await host.waitForSelector('#ua-off:not([hidden])');
+    assert.equal(await host.isHidden('#unattended-indicator'), true);
+    await host.click('#btn-ua-setup');
+    await host.waitForSelector('#dlg-ua[open]');
+    assert.match(await text(host, '#ua-dlg-explain'), /sem que alguém aprove cada sessão/);
+    await host.fill('#ua-dlg-name', 'PC de casa');
+    await host.fill('#ua-dlg-password', '12345678');
+    await host.waitForFunction(() => document.querySelector('#ua-dlg-problems').children.length > 0);
+    await host.click('#btn-ua-dlg-submit');
+    assert.match(await text(host, '#ua-dlg-error'), /requisitos/);
+    await host.fill('#ua-dlg-password', UA_PASSWORD);
+    await host.fill('#ua-dlg-password2', 'Outra-Senha#2026');
+    await host.click('#btn-ua-dlg-submit');
+    assert.match(await text(host, '#ua-dlg-error'), /não são iguais/);
+    await host.fill('#ua-dlg-password2', UA_PASSWORD);
+    await host.click('#btn-ua-dlg-submit');
+    assert.match(await text(host, '#ua-dlg-error'), /confirmação/);
+    await host.check('#ua-dlg-understand');
+    await host.screenshot({ path: join(OUT, 'desktop-08-ativar-sem-supervisao.png') });
+    await host.click('#btn-ua-dlg-submit');
+    await host.waitForSelector('#ua-on:not([hidden])', { timeout: 20000 });
+    deviceId = (await text(host, '#ua-device-id')).replace(/\s/g, '');
+    assert.match(deviceId, /^\d{9}$/);
+    assert.equal(await host.isVisible('#unattended-indicator'), true, 'indicador permanente na barra lateral');
+    // A senha nunca é guardada nem registrada.
+    assert.ok(!(await hook('readUnattendedFile')).includes(UA_PASSWORD));
+    let presence = [];
+    for (let i = 0; i < 30 && !presence.includes('online'); i++) {
+      await host.waitForTimeout(100);
+      presence = await hook('presenceStatus');
+    }
+    assert.ok(presence.includes('online'), `presença: ${presence}`);
+    assert.ok(await hook('lanPort'), 'rede local aberta enquanto o recurso estiver ativo');
+    await host.screenshot({ path: join(OUT, 'desktop-09-ajustes-sem-supervisao.png') });
+  });
+
+  await step('sem supervisão pela rede local (UDP + TLS validado): senha errada é recusada no próprio computador e registrada', async () => {
+    // Com endereço informado, o app procura o computador por UDP e conecta por wss:// ao servidor
+    // TLS da rede local dele (certificado validado por pinning), como faria de outra máquina.
+    const deviceWin = await connectUnattended('Senha-Errada#2026', { address: '127.0.0.1' });
+    assert.ok(deviceWin, 'o computador abre uma janela para atender o pedido');
+    await tech.waitForSelector('#view-ended:not([hidden])', { timeout: 30000 });
+    assert.match(await text(tech, '#ended-reason'), /Senha incorreta/);
+    const log = await hook('readSecurityLog');
+    assert.match(log, /"auth_failed"/);
+    assert.ok(!log.includes('Senha-Errada#2026'), 'senha tentada não vai para o log');
+    await deviceWin.waitForSelector('#view-ended:not([hidden])', { timeout: 10000 });
+    assert.match(await text(deviceWin, '#ended-reason'), /senha incorreta/);
+    await deviceWin.close();
+  });
+
+  let deviceWin;
+  await step('sem supervisão: senha certa entra sem aprovação, com tela capturada sozinha e avisos visíveis', async () => {
+    await tech.waitForTimeout(2200); // atraso progressivo após a falha anterior
+    deviceWin = await connectUnattended(UA_PASSWORD);
+    await tech.waitForSelector('#conn-status[data-kind=ok]', { timeout: 30000 });
+    await tech.waitForFunction(() => document.querySelector('#video').videoWidth > 0, null, { timeout: 30000 });
+    assert.match(await text(tech, '#banner-share'), /Você está vendo a tela de PC de casa/);
+    await deviceWin.waitForFunction(() => document.querySelector('#banner-share').textContent.includes('Notebook do trabalho'));
+    assert.match(await text(deviceWin, '#banner-share'), /Sua tela está sendo compartilhada/);
+    assert.equal(await deviceWin.isVisible('#dlg-source[open]'), false, 'sem seletor: ninguém para escolher');
+    assert.equal(await deviceWin.isVisible('#dlg-approve[open]'), false, 'sem aprovação por sessão');
+    await deviceWin.waitForFunction(() => document.querySelector('#banner-control').textContent.includes('ATIVO'), null, { timeout: 10000 });
+    assert.equal(await hook('controlActive'), true);
+    assert.equal(await hook('overlayVisible'), true, 'aviso vermelho de controle visível');
+    const summary = await hook('unattendedSummary');
+    assert.equal(summary.devices.length, 1);
+    assert.equal(summary.devices[0].name, 'Notebook do trabalho');
+    assert.match(await hook('readSecurityLog'), /"auth_success"/);
+    await deviceWin.screenshot({ path: join(OUT, 'desktop-10-sessao-sem-supervisao.png') });
+  });
+
+  await step('sem supervisão: ninguém troca a senha durante uma sessão (nem controlando remotamente)', async () => {
+    await host.click('#btn-ua-password');
+    await host.fill('#ua-dlg-password', 'Nova-Senha#Forte2026');
+    await host.fill('#ua-dlg-password2', 'Nova-Senha#Forte2026');
+    await host.click('#btn-ua-dlg-submit');
+    await host.waitForFunction(() => document.querySelector('#ua-dlg-error').textContent.includes('sessões em andamento'));
+    await host.click('#btn-ua-dlg-cancel');
+  });
+
+  await step('sem supervisão: "Revogar acesso" encerra a sessão em andamento na hora', async () => {
+    await host.waitForSelector('#ua-devices .btn-destructive-text');
+    await host.click('#ua-devices .btn-destructive-text');
+    await host.click('#confirm-yes');
+    await tech.waitForSelector('#view-ended:not([hidden])', { timeout: 15000 });
+    assert.match(await text(tech, '#ended-reason'), /revogou o acesso/);
+    assert.equal(await hook('controlActive'), false);
+    assert.deepEqual(await hook('unattendedSessions'), []);
+    assert.equal((await hook('unattendedSummary')).devices.length, 0);
+    await deviceWin.close();
+  });
+
+  await step('sem supervisão: com novos dispositivos bloqueados, o dispositivo revogado não entra nem com a senha certa', async () => {
+    await host.uncheck('#ua-allow-new');
+    await host.waitForFunction(async () => !document.querySelector('#ua-allow-new').checked);
+    const win = await connectUnattended(UA_PASSWORD);
+    await tech.waitForSelector('#view-ended:not([hidden])', { timeout: 30000 });
+    assert.match(await text(tech, '#ended-reason'), /não está autorizado/);
+    assert.match(await hook('readSecurityLog'), /device_not_allowed/);
+    await win?.close();
+  });
+
+  await step('sem supervisão: trocar a senha e desativar removem o acesso e o indicador', async () => {
+    await host.check('#ua-allow-new');
+    await host.click('#btn-ua-password');
+    await host.fill('#ua-dlg-password', 'Nova-Senha#Forte2026');
+    await host.fill('#ua-dlg-password2', 'Nova-Senha#Forte2026');
+    await host.click('#btn-ua-dlg-submit');
+    await host.waitForSelector('#dlg-ua', { state: 'hidden' });
+    await host.click('#btn-ua-disable');
+    await host.click('#confirm-yes');
+    await host.waitForSelector('#ua-off:not([hidden])');
+    assert.equal(await host.isHidden('#unattended-indicator'), true);
+    assert.equal((await hook('unattendedSummary')).enabled, false);
+    assert.deepEqual(await hook('presenceStatus'), []);
+    const log = await hook('readSecurityLog');
+    for (const e of ['password_changed', 'disabled', 'device_revoked']) assert.match(log, new RegExp(`"${e}"`));
+    // Com o recurso desligado, o computador não é mais encontrado.
+    const none = await connectUnattended('Nova-Senha#Forte2026');
+    await tech.waitForFunction(() => !document.querySelector('#ua-form-error').hidden, null, { timeout: 15000 });
+    assert.match(await text(tech, '#ua-form-error'), /Não encontramos/);
+    assert.equal(none, null, 'nenhuma janela aberta: não há quem atender');
   });
 
   assert.deepEqual(errors, []);

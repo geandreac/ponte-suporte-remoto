@@ -64,3 +64,19 @@ test('share-state informa se o controle está ativo', () => {
   assert.equal(validateDataMessage({ type: 'share-state', paused: false, controlActive: true }).value.controlActive, true);
   assert.equal(validateDataMessage({ type: 'share-state', paused: false, controlActive: 'sim' }).value.controlActive, false);
 });
+
+test('mensagens de autenticação do acesso sem supervisão: limites rígidos', () => {
+  const ch = { type: 'auth-challenge', id: 'c1', salt: 'A'.repeat(22) + '==', N: 2 ** 17, r: 8, p: 1, nonce: 'B'.repeat(24), deviceId: '123456789' };
+  assert.equal(validateDataMessage(ch).ok, true);
+  // Parâmetros abusivos (custo de memória/CPU no técnico) são recusados.
+  assert.equal(validateDataMessage({ ...ch, N: 2 ** 22 }).ok, false);
+  assert.equal(validateDataMessage({ ...ch, N: 100000 }).ok, false, 'N precisa ser potência de 2');
+  assert.equal(validateDataMessage({ ...ch, p: 64 }).ok, false);
+  assert.equal(validateDataMessage({ ...ch, N: 2 ** 10 }).ok, false, 'fraco demais');
+  assert.equal(validateDataMessage({ type: 'auth-response', id: 'c1', mac: `${'x'.repeat(43)}=`, techId: 'tec-1' }).ok, true);
+  assert.equal(validateDataMessage({ type: 'auth-response', id: 'c1', mac: 'curto', techId: 'tec-1' }).ok, false);
+  const res = validateDataMessage({ type: 'auth-result', id: 'c1', ok: false, error: 'locked', retryAfter: 999999 });
+  assert.equal(res.value.retryAfter, 86400);
+  assert.equal(validateClientMessage({ type: 'unattended:connect', deviceId: '123 456 789', name: 'Eu', requested: { view: true } }).value.deviceId, '123456789');
+  assert.equal(validateClientMessage({ type: 'device:register', deviceId: '12', publicKey: 'x', signature: 'y' }).error, 'invalid_device');
+});

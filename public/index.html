@@ -61,6 +61,9 @@
         </ul>
       </nav>
       <div class="sidebar-footer">
+        <a id="unattended-indicator" class="status-chip unattended-chip" href="#ajustes" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span>Sem supervisão: ativado</span>
+        </a>
         <p id="signal-status" class="status-chip" data-status="offline" role="status">
           <span class="dot" aria-hidden="true"></span><span class="status-text">Servidor: desconectado</span>
         </p>
@@ -121,7 +124,61 @@
         <section id="view-tech" class="view" hidden aria-labelledby="tech-title">
           <header class="toolbar"><h1 id="tech-title" class="toolbar-title">Prestar suporte</h1></header>
           <div class="content content-narrow">
-            <form id="form-tech" class="form" novalidate>
+            <div class="segmented mode-switch" role="tablist" aria-label="Tipo de conexão">
+              <button role="tab" id="tab-mode-invite" aria-controls="form-tech" aria-selected="true">Com convite</button>
+              <button role="tab" id="tab-mode-unattended" aria-controls="panel-unattended-connect" aria-selected="false" tabindex="-1">Sem supervisão</button>
+            </div>
+
+            <div id="panel-unattended-connect" role="tabpanel" aria-labelledby="tab-mode-unattended" hidden>
+              <p class="secondary mode-intro">Entre num computador que você configurou para acesso sem supervisão, usando o ID e a senha definidos nele.</p>
+              <p id="ua-web-note" class="inline-alert" data-kind="info" hidden><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span>Disponível no app de computador.</span></p>
+              <form id="form-unattended" class="form" novalidate autocomplete="off">
+                <h2 class="section-title">Computador</h2>
+                <div class="group">
+                  <label class="group-row field" for="ua-device">
+                    <span class="field-label">ID do computador</span>
+                    <input id="ua-device" inputmode="numeric" autocomplete="off" placeholder="123 456 789" aria-describedby="err-ua-device">
+                  </label>
+                  <label class="group-row field" for="ua-password">
+                    <span class="field-label">Senha de acesso</span>
+                    <input id="ua-password" type="password" autocomplete="off" spellcheck="false" aria-describedby="err-ua-password ua-password-hint">
+                  </label>
+                </div>
+                <p class="group-footer" id="ua-password-hint">A senha não é enviada: o app prova que você a conhece, dentro da conexão cifrada.</p>
+                <p class="field-error" id="err-ua-device"></p>
+                <p class="field-error" id="err-ua-password"></p>
+                <details class="disclosure lan-address">
+                  <summary>Está na mesma rede e não encontrou? Informe o endereço</summary>
+                  <div class="group">
+                    <label class="group-row field" for="ua-address">
+                      <span class="field-label">Endereço na rede</span>
+                      <input id="ua-address" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.0.10" aria-describedby="err-ua-address">
+                    </label>
+                  </div>
+                  <p class="field-error" id="err-ua-address"></p>
+                </details>
+
+                <h2 class="section-title">Você</h2>
+                <div class="group">
+                  <label class="group-row field" for="ua-name">
+                    <span class="field-label">Seu nome</span>
+                    <input id="ua-name" maxlength="64" autocomplete="name" placeholder="Aparece no aviso do outro computador" aria-describedby="err-ua-name">
+                  </label>
+                </div>
+                <p class="field-error" id="err-ua-name"></p>
+
+                <h2 class="section-title" id="ua-req-title">Acesso solicitado</h2>
+                <div id="ua-perms" class="group" role="group" aria-labelledby="ua-req-title"></div>
+                <p class="group-footer">O computador só libera o que o dono permitiu na configuração.</p>
+
+                <p id="ua-form-error" class="inline-alert" data-kind="error" role="alert" hidden></p>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary" id="btn-ua-connect">Conectar</button>
+                </div>
+              </form>
+            </div>
+
+            <form id="form-tech" class="form" role="tabpanel" aria-labelledby="tab-mode-invite" novalidate>
               <h2 class="section-title">Convite</h2>
               <div class="group">
                 <label class="group-row field" for="tech-session">
@@ -208,6 +265,50 @@
                 <button type="submit" class="btn btn-primary">Salvar e reiniciar</button>
               </div>
             </form>
+            <h2 class="section-title" id="ua-title">Acessar computador sem supervisão</h2>
+            <section class="group" aria-labelledby="ua-title" id="ua-settings">
+              <div id="ua-off">
+                <div class="group-row">
+                  <span class="row-text"><span class="row-title">Desativado</span>
+                    <span class="row-hint">Permite que você entre neste computador de outro lugar sem alguém aprovar cada conexão, usando uma senha só deste computador.</span></span>
+                </div>
+                <div class="group-row"><button type="button" class="btn" id="btn-ua-setup">Configurar acesso sem supervisão…</button></div>
+              </div>
+              <div id="ua-on" hidden>
+                <div class="group-row ua-status">
+                  <span class="row-icon ua-on-icon" aria-hidden="true"><svg class="icon"><use href="#i-shield"/></svg></span>
+                  <span class="row-text"><span class="row-title">Ativado</span><span class="row-hint" id="ua-presence"></span></span>
+                  <span class="ua-id"><span class="secondary">ID deste computador</span><strong id="ua-device-id" class="code-inline"></strong></span>
+                </div>
+                <p id="ua-locked" class="group-row inline-alert" data-kind="error" hidden></p>
+                <p id="ua-vault" class="group-row secondary" hidden></p>
+                <label class="group-row perm-row" for="ua-allow-new">
+                  <span class="row-text"><span class="row-title">Aceitar novos dispositivos</span>
+                    <span class="row-hint">Desligue depois de entrar pela primeira vez de cada dispositivo seu: aí só os autorizados abaixo conseguem tentar a senha.</span></span>
+                  <input type="checkbox" role="switch" class="switch" id="ua-allow-new">
+                </label>
+                <label class="group-row perm-row" for="ua-autostart" id="ua-autostart-row">
+                  <span class="row-text"><span class="row-title">Iniciar com o computador</span>
+                    <span class="row-hint" id="ua-autostart-hint">Abre o Ponte na área de notificação ao ligar, para o acesso funcionar sem você abrir o app.</span></span>
+                  <input type="checkbox" role="switch" class="switch" id="ua-autostart">
+                </label>
+                <div class="group-row ua-actions">
+                  <button type="button" class="btn" id="btn-ua-password">Trocar senha</button>
+                  <button type="button" class="btn" id="btn-ua-unlock" hidden>Desbloquear</button>
+                  <button type="button" class="btn btn-destructive" id="btn-ua-disable">Desativar</button>
+                </div>
+              </div>
+            </section>
+            <div id="ua-devices-block" hidden>
+              <h2 class="section-title" id="ua-devices-title">Dispositivos autorizados</h2>
+              <ul id="ua-devices" class="group list" aria-labelledby="ua-devices-title"></ul>
+              <p class="group-footer">Revogar acesso encerra na hora qualquer sessão desse dispositivo.</p>
+              <details class="disclosure ua-log-box">
+                <summary>Registro de segurança</summary>
+                <ol id="ua-log" class="event-log"></ol>
+              </details>
+            </div>
+
             <h2 class="section-title" id="updates-title">Atualizações</h2>
             <div class="group" role="group" aria-labelledby="updates-title">
               <label class="group-row perm-row" for="auto-update">
@@ -437,6 +538,57 @@
         <button type="button" id="btn-source-cancel" class="btn" autofocus>Cancelar</button>
       </div>
     </div>
+  </dialog>
+
+  <!-- Configuração do acesso sem supervisão -->
+  <dialog id="dlg-ua" aria-labelledby="ua-dlg-title" class="dialog-wide">
+    <form class="dialog-body" id="form-ua-setup" novalidate>
+      <span class="dialog-icon ua-dialog-icon" aria-hidden="true"><svg class="icon"><use href="#i-shield"/></svg></span>
+      <h2 id="ua-dlg-title" class="dialog-title">Acessar computador sem supervisão</h2>
+      <div id="ua-dlg-explain" class="ua-explain">
+        <p>Com isto ativado, <strong>conexões futuras poderão entrar neste computador sem que alguém aprove cada sessão</strong>, desde que saibam o ID e a senha que você criar agora.</p>
+        <ul>
+          <li>Funciona com o computador ligado, desbloqueado e com o Ponte aberto (ou na área de notificação).</li>
+          <li>Um ícone fica visível na área de notificação e você recebe um aviso quando uma sessão começar e terminar.</li>
+          <li>Você pode revogar dispositivos, trocar a senha ou desativar a qualquer momento.</li>
+        </ul>
+      </div>
+      <div class="group" id="ua-dlg-name-group">
+        <label class="group-row field" for="ua-dlg-name">
+          <span class="field-label">Nome deste computador</span>
+          <input id="ua-dlg-name" maxlength="64" placeholder="PC de casa">
+        </label>
+      </div>
+      <h3 class="section-title">Senha deste computador</h3>
+      <div class="group">
+        <label class="group-row field" for="ua-dlg-password">
+          <span class="field-label">Senha</span>
+          <input id="ua-dlg-password" type="password" autocomplete="new-password" spellcheck="false" aria-describedby="ua-dlg-rules">
+        </label>
+        <label class="group-row field" for="ua-dlg-password2">
+          <span class="field-label">Repita a senha</span>
+          <input id="ua-dlg-password2" type="password" autocomplete="new-password" spellcheck="false" aria-describedby="ua-dlg-rules">
+        </label>
+      </div>
+      <div class="group-footer" id="ua-dlg-rules">
+        <strong>Crie uma senha só para este computador.</strong> Não reutilize a senha do e-mail, do banco ou de outro dispositivo. Mínimo de 12 caracteres.
+        <ul id="ua-dlg-problems" class="ua-problems" aria-live="polite"></ul>
+      </div>
+      <div id="ua-dlg-perms-block">
+        <h3 class="section-title" id="ua-dlg-perms-title">O que quem entrar poderá fazer</h3>
+        <div id="ua-dlg-perms" class="group" role="group" aria-labelledby="ua-dlg-perms-title"></div>
+        <p class="group-footer">Ver a tela está sempre incluído. Libere só o necessário.</p>
+      </div>
+      <label class="ua-confirm" for="ua-dlg-understand" id="ua-dlg-confirm-row">
+        <input type="checkbox" id="ua-dlg-understand">
+        <span>Entendo que este computador poderá receber conexões remotas futuras sem aprovação a cada sessão.</span>
+      </label>
+      <p id="ua-dlg-error" class="field-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="btn-ua-dlg-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-destructive" id="btn-ua-dlg-submit">Ativar acesso sem supervisão</button>
+      </div>
+    </form>
   </dialog>
 
   <!-- Confirmação -->

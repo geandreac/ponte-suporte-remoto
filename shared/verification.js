@@ -24,3 +24,13 @@ export async function computeVerificationCode(sdpA, sdpB, subtle = globalThis.cr
   const code = String(n).padStart(8, '0');
   return `${code.slice(0, 4)} ${code.slice(4)}`;
 }
+
+// Texto canônico com as impressões digitais dos dois lados (igual para os dois pares).
+// Usado para amarrar a prova de senha do acesso sem supervisão a ESTA conexão cifrada:
+// um intermediário negociaria certificados diferentes e a prova não valeria para ele.
+export function fingerprintBinding(sdpA, sdpB) {
+  const a = extractFingerprints(sdpA).join(',');
+  const b = extractFingerprints(sdpB).join(',');
+  if (!a || !b) return null;
+  return [a, b].sort().join('|');
+}

@@ -1,5 +1,17 @@
 # Histórico de versões
 
+## 0.3.0
+- **Acessar computador sem supervisão** (app de computador): senha fixa por computador (scrypt com
+  salt, cofre do sistema), ativação explícita e só sem sessões em andamento, desafio-resposta sem
+  enviar a senha, atraso progressivo e bloqueios, dispositivos autorizados com revogação, registro
+  de segurança, ícone na área de notificação, notificações de início/fim, início com o sistema
+  opcional. Funciona na rede local e pela internet.
+- Servidor: registro de computadores com chave Ed25519 (ID derivado da chave) e sessões sem
+  supervisão que nascem sem permissões; motivo de encerramento (ex.: acesso revogado).
+- Implantação na **Oracle Cloud Free** (`deploy/oracle/`): Caddy com HTTPS automático, servidor e
+  TURN próprio (coturn); guia em docs/MIGRACAO-ORACLE.md.
+- Correção: interruptor dos Ajustes podia ser desfeito por uma atualização de estado atrasada.
+
 ## 0.2.4
 - Servidor de conexão gratuito no Render (`render.yaml` + botão "Deploy to Render") para conectar
   computadores em redes diferentes.

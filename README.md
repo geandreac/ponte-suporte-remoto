@@ -55,6 +55,15 @@ Os instaladores são gerados pelo GitHub Actions (workflow **Executáveis**) sem
   aceitar a conexão; o acesso sem supervisão está planejado em
   [docs/ACESSO-SEM-SUPERVISAO.md](docs/ACESSO-SEM-SUPERVISAO.md).
 
+### Acessar computador sem supervisão
+
+Para entrar no **seu** computador de outro lugar sem alguém aprovar: no computador que será
+acessado, **Ajustes › Acessar computador sem supervisão › Configurar…**, crie uma senha só para ele
+e confirme. No outro: **Prestar suporte › Sem supervisão**, informe o ID e a senha. Na mesma rede
+funciona direto; de fora, com o servidor da internet configurado (recomendado: Oracle Cloud Free).
+Desativado por padrão; a senha nunca é enviada nem guardada em texto. Detalhes e limitações (ex.:
+no Windows o computador precisa estar desbloqueado) em [docs/MIGRACAO-ORACLE.md](docs/MIGRACAO-ORACLE.md).
+
 ### Controle remoto
 
 Quem presta suporte pede **Controlar teclado e mouse**; quem recebe ajuda libera (desligado por
@@ -92,7 +101,8 @@ pelo botão **Reiniciar e atualizar**, nunca durante uma sessão). No macOS, no 
 | Gravação local opcional com consentimento e indicador contínuo | ✅ |
 | Histórico local e log de auditoria sem conteúdo sensível; limite de tentativas | ✅ |
 | Servidor de conexão gratuito (Render) com espera pelo "acordar" e sinal periódico | ✅ |
-| **Acessar computador sem supervisão** | 📋 Planejado com requisitos de segurança ([especificação](docs/ACESSO-SEM-SUPERVISAO.md)); ainda não implementado |
+| **Acessar computador sem supervisão** (senha fixa por computador, rede local e internet; app de computador) | ✅ ([como funciona](docs/MIGRACAO-ORACLE.md#4-senha-fixa-por-computador--como-foi-implementada)) |
+| Implantação na Oracle Cloud Free (HTTPS automático + TURN próprio) | ✅ arquivos e guia ([docs/MIGRACAO-ORACLE.md](docs/MIGRACAO-ORACLE.md)); a VM depende da sua conta |
 | Assinatura digital dos instaladores | ⛔ Requer certificados pagos (Apple Developer, Authenticode) |
 
 ## Desenvolvimento
@@ -163,7 +173,9 @@ build/    ícone e recursos do instalador     .github/workflows/  CI e geração
 
 ## Limitações
 
-- **Acesso não assistido** não existe. **Controle remoto** só no app de computador, com a tela
+- **Acesso sem supervisão** só no app de computador; no Windows exige o computador desbloqueado
+  e não há segundo fator por app autenticador (a camada extra é a lista de dispositivos autorizados).
+  **Controle remoto** só no app de computador, com a tela
   inteira compartilhada; não funciona no Wayland nem na versão web (aparece como indisponível).
 - **Atualização automática** não instala sozinha no macOS (app sem assinatura), no Windows
   portátil nem no .deb: nesses casos o app avisa e abre a página de download.

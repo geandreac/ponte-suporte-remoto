@@ -1,0 +1,46 @@
+# Ponte na Oracle Cloud Free (ou qualquer VM Linux com Docker).
+# Variáveis vêm do arquivo .env gerado pelo install.sh (PONTE_DOMAIN, ACME_EMAIL, TURN_SECRET).
+services:
+  ponte:
+    build: ../..
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      TRUST_PROXY: "1"
+      ALLOWED_ORIGINS: https://${PONTE_DOMAIN}
+      STUN_URLS: stun:${PONTE_DOMAIN}:3478
+      TURN_URLS: turn:${PONTE_DOMAIN}:3478?transport=udp,turn:${PONTE_DOMAIN}:3478?transport=tcp
+      TURN_SECRET: ${TURN_SECRET}
+    expose:
+      - "8080"
+
+  # HTTPS automático (Let's Encrypt) e repasse do WebSocket para o servidor.
+  caddy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    depends_on:
+      - ponte
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PONTE_DOMAIN: ${PONTE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # Retransmissão (TURN) para redes que bloqueiam a conexão direta. Rede do host: precisa de
+  # uma faixa de portas UDP e do IP público real.
+  coturn:
+    image: coturn/coturn:4.18-alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+
+volumes:
+  caddy_data:
+  caddy_config:

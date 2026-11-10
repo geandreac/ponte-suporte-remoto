@@ -140,8 +140,18 @@ SHA-512); quem controlar a conta do repositório consegue publicar uma atualiza�
 
 ## Acesso sem supervisão
 
-Planejado, ainda não implementado. Requisitos, protocolo de autenticação (sem enviar a senha) e
-limitações de cada sistema em [ACESSO-SEM-SUPERVISAO.md](ACESSO-SEM-SUPERVISAO.md).
+Implementado no app de computador (0.3.0):
+- `desktop/unattended.mjs`: cofre (scrypt + salt, cofre do sistema), desafio-resposta, bloqueios,
+  dispositivos autorizados, log de segurança.
+- `desktop/presence.mjs`: mantém o computador registrado (chave Ed25519; ID derivado da chave) no
+  servidor embutido (rede local) e no servidor da internet.
+- `server/signaling.js`: `device:register` (prova de posse da chave) e `unattended:connect` (sessão
+  criada sem permissões; a senha nunca chega ao servidor).
+- Sessão: o computador envia `auth-challenge`, o técnico responde `auth-response` com HMAC amarrado
+  às impressões digitais DTLS; só então há captura (sem seletor) e permissões.
+
+Requisitos e protocolo: [ACESSO-SEM-SUPERVISAO.md](ACESSO-SEM-SUPERVISAO.md). Implantação e
+validação: [MIGRACAO-ORACLE.md](MIGRACAO-ORACLE.md).
 
 ## Próximos passos recomendados
 

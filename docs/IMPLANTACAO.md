@@ -23,7 +23,12 @@ O app de computador conecta máquinas no mesmo Wi-Fi/roteador sem nenhum servido
   só durante convites/sessões: **UDP 47800** (descoberta) e uma porta TCP aleatória (TLS).
 - O roteador não pode isolar os clientes do Wi-Fi (comum em redes de visitantes).
 
-## Servidor gratuito no Render (recomendado para começar)
+## Oracle Cloud Free (recomendado)
+
+VM sempre ligada, com HTTPS automático (Caddy + Let's Encrypt) e TURN próprio (coturn), usando os
+arquivos de `deploy/oracle/`. Passo a passo completo em [MIGRACAO-ORACLE.md](MIGRACAO-ORACLE.md#3-cronograma-de-implementação).
+
+## Servidor gratuito no Render (alternativa)
 
 O arquivo `render.yaml` na raiz descreve o serviço (Docker, plano gratuito, verificação em
 `/healthz`, `TRUST_PROXY=1`). Use o botão **Deploy to Render** do README ou, no painel do Render,

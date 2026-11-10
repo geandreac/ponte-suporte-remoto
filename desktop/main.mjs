@@ -12,24 +12,27 @@
 
 import {
   app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, MessageChannelMain, nativeImage,
-  nativeTheme, protocol, screen,
-  session, shell, systemPreferences, utilityProcess, webContents,
+  nativeTheme, Notification, protocol, safeStorage, screen,
+  session, shell, systemPreferences, Tray, utilityProcess, webContents,
 } from 'electron';
 import electronUpdater from 'electron-updater';
-import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { readFile, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { createServer as createHttpsServer } from 'node:https';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp, MIME, resolveStaticPath, securityHeaders } from '../server/app.js';
 import { loadConfig } from '../server/config.js';
 import {
-  normalizeSecret, normalizeSessionId, SECRET_PATTERN, SESSION_ID_PATTERN,
+  formatSessionId, normalizeSecret, normalizeSessionId, SECRET_PATTERN, SESSION_ID_PATTERN, validateDataMessage,
 } from '../shared/protocol.js';
 import { REVOKE_ACCELERATOR } from './input.mjs';
 import {
-  createResponder, deriveInviteKey, discover, ensureCertificate, isValidAddress, localAddresses,
+  createResponder, deriveInviteKey, discover, discoverDevice, ensureCertificate, isValidAddress, localAddresses,
 } from './lan.mjs';
+import { DevicePresence } from './presence.mjs';
+import { computeProof, UnattendedStore } from './unattended.mjs';
 import { loadSettings, saveSettings, signalingUrlFor, validateSettings } from './settings.mjs';
 import { createUpdater, RELEASES_URL, updateMode } from './updater.mjs';
 
@@ -48,6 +51,12 @@ protocol.registerSchemesAsPrivileged([
 
 let settings = null;
 let signalingUrl = '';
+let loopbackUrl = '';
+let unattended = null; // cofre do acesso sem supervisão
+let presences = [];
+let tray = null;
+const unattendedSessions = new Map(); // webContents.id -> { sessionId, techName, techId, authenticated }
+const flowWindows = new Set(); // janelas com convite/sessão em andamento
 let connectSrc = ["'self'"];
 let embedded = null;
 const pendingPicks = new Map();
@@ -88,18 +97,21 @@ if (!app.requestSingleInstanceLock()) {
 async function start() {
   const userData = app.getPath('userData');
   settings = await loadSettings(userData);
+  // Servidor embutido sempre ativo (só em 127.0.0.1): atende o modo rede local e é por ele que
+  // a rede local alcança este computador no acesso sem supervisão.
+  embedded = createApp(
+    { ...loadConfig({}), host: '127.0.0.1', port: 0, auditLogFile: join(userData, 'audit.log') },
+  );
+  const { port } = await embedded.listen();
+  loopbackUrl = `ws://127.0.0.1:${port}/ws`;
+  // wss: para alcançar outro computador na rede local (certificado validado por pinning).
+  connectSrc = ["'self'", `ws://127.0.0.1:${port}`, 'wss:'];
   if (settings.mode === 'remote') {
     signalingUrl = signalingUrlFor(settings.serverUrl);
     const ws = new URL(signalingUrl);
-    connectSrc = ["'self'", `${ws.protocol}//${ws.host}`];
+    connectSrc.push(`${ws.protocol}//${ws.host}`);
   } else {
-    embedded = createApp(
-      { ...loadConfig({}), host: '127.0.0.1', port: 0, auditLogFile: join(userData, 'audit.log') },
-    );
-    const { port } = await embedded.listen();
-    signalingUrl = `ws://127.0.0.1:${port}/ws`;
-    // wss: para alcançar o computador de quem gerou o convite na rede local (certificado validado por pinning).
-    connectSrc = ["'self'", `ws://127.0.0.1:${port}`, 'wss:'];
+    signalingUrl = loopbackUrl;
   }
 
   inputStatus = await initInput();
@@ -108,7 +120,10 @@ async function start() {
   registerIpc();
   initUpdater();
   Menu.setApplicationMenu(buildMenu());
-  createWindow();
+  await initUnattended();
+  // Iniciado com o computador (opção visível em Ajustes): só o ícone na área de notificação.
+  const startHidden = process.argv.includes('--hidden') && unattended.enabled;
+  if (!startHidden) createWindow();
   if (process.env.PONTE_TEST === '1') exposeTestHooks();
 
   app.on('activate', () => {
@@ -163,10 +178,13 @@ function createWindow() {
   });
   win.webContents.on('destroyed', () => {
     captureTargets.delete(wcId);
+    flowWindows.delete(wcId);
     if (control.owner?.id === wcId) stopControl();
+    const unattendedSession = unattendedSessions.get(wcId);
+    if (unattendedSession) endUnattendedSession(wcId, 'window_closed');
     if (lan) {
       for (const [id, entry] of lan.invites) if (entry.wcId === wcId) lan.invites.delete(id);
-      if (lan.invites.size === 0) closeLan();
+      maybeCloseLan();
     }
   });
   // Fechar no meio de uma sessão: confirmação nativa (a página sinaliza via beforeunload).
@@ -189,10 +207,20 @@ function createWindow() {
 
 function hardenSession() {
   const ses = session.defaultSession;
-  ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
-    callback(isAppUrl(details.requestingUrl) && ALLOWED_PERMISSIONS.has(permission));
+  // Captura sem seletor (getUserMedia de tela) só para a janela de uma sessão sem supervisão já
+  // autenticada por senha. Câmera e microfone continuam sempre negados.
+  const unattendedVideo = (wc, details) => Boolean(wc && unattendedSessions.get(wc.id)?.authenticated)
+    && Array.isArray(details?.mediaTypes) && details.mediaTypes.length > 0 && details.mediaTypes.every((t) => t === 'video');
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    if (!isAppUrl(details.requestingUrl)) return callback(false);
+    if (permission === 'media') return callback(unattendedVideo(wc, details));
+    return callback(ALLOWED_PERMISSIONS.has(permission));
   });
-  ses.setPermissionCheckHandler((_wc, permission, origin) => isAppUrl(origin) && ALLOWED_PERMISSIONS.has(permission));
+  ses.setPermissionCheckHandler((wc, permission, origin, details) => {
+    if (!isAppUrl(origin)) return false;
+    if (permission === 'media') return Boolean(wc && unattendedSessions.get(wc.id)?.authenticated) && details?.mediaType !== 'audio';
+    return ALLOWED_PERMISSIONS.has(permission);
+  });
 
   // Rede local: certificado próprio aceito só se for exatamente o anunciado (e autenticado) na descoberta.
   ses.setCertificateVerifyProc((request, callback) => {
@@ -266,6 +294,7 @@ async function ensureLan() {
     const state = { server, port: server.address().port, fingerprint: cert.fingerprint, invites: new Map(), responder: null };
     state.responder = createResponder({
       getKey: (id) => state.invites.get(id)?.key ?? null,
+      getDeviceId: () => (unattended?.enabled ? unattended.deviceId : null),
       servicePort: () => state.port,
       fingerprint: cert.fingerprint,
     });
@@ -281,6 +310,11 @@ async function ensureLan() {
     lanStarting = null;
   });
   return lanStarting;
+}
+
+// Mantém a rede local aberta enquanto houver convite/sessão OU acesso sem supervisão ativado.
+function maybeCloseLan() {
+  if (lan && lan.invites.size === 0 && !unattended?.enabled) closeLan();
 }
 
 function closeLan() {
@@ -502,7 +536,8 @@ function initUpdater() {
   updater.start();
 }
 
-const hasActiveSessions = () => Boolean(control.owner) || (embedded?.store.size ?? 0) > 0;
+const hasActiveSessions = () => Boolean(control.owner) || (embedded?.store.size ?? 0) > 0 || flowWindows.size > 0
+  || [...unattendedSessions.values()].some((s) => s.authenticated);
 
 /* ================= IPC ================= */
 
@@ -561,8 +596,14 @@ function registerIpc() {
   ipcMain.handle('ponte:lan-host-stop', (event, sessionId) => {
     if (!fromApp(event) || !lan) return;
     lan.invites.delete(String(sessionId));
-    if (lan.invites.size === 0) closeLan();
+    maybeCloseLan();
   });
+  ipcMain.on('ponte:flow', (event, active) => {
+    if (!fromApp(event)) return;
+    if (active === true) flowWindows.add(event.sender.id);
+    else flowWindows.delete(event.sender.id);
+  });
+  registerUnattendedIpc();
 
   // Rede local — quem presta suporte.
   ipcMain.handle('ponte:lan-discover', async (event, rawId, rawSecret, rawAddress) => {
@@ -616,6 +657,337 @@ function registerIpc() {
   });
 }
 
+
+/* ================= Acesso sem supervisão ================= */
+
+const SAFE_STORAGE_OK = () => {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return false;
+    // No Linux sem chaveiro, o "basic_text" usa uma chave fixa: não conta como cofre.
+    return process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text';
+  } catch {
+    return false;
+  }
+};
+
+async function initUnattended() {
+  const vault = SAFE_STORAGE_OK();
+  unattended = new UnattendedStore({
+    dir: app.getPath('userData'),
+    protection: vault ? 'system' : 'file',
+    protect: (text) => (vault ? `s:${safeStorage.encryptString(text).toString('base64')}` : `p:${text}`),
+    unprotect: (text) => {
+      if (text.startsWith('s:')) return safeStorage.decryptString(Buffer.from(text.slice(2), 'base64'));
+      if (text.startsWith('p:')) return text.slice(2);
+      throw new Error('formato');
+    },
+  });
+  await unattended.load();
+  if (unattended.enabled) await activateUnattended();
+}
+
+async function activateUnattended() {
+  try {
+    await ensureLan();
+  } catch {
+    // rede local indisponível (porta ocupada/firewall): segue só pelo servidor
+  }
+  stopPresences();
+  const urls = [loopbackUrl, ...(settings.mode === 'remote' ? [signalingUrl] : [])];
+  const name = unattended.summary.deviceName || hostname();
+  presences = urls.map((url) => {
+    const presence = new DevicePresence({
+      url,
+      store: unattended,
+      name,
+      capabilities: { screenCapture: true, inputInjection: inputStatus.available },
+      onIncoming: onUnattendedIncoming,
+      onStatus: () => broadcastUnattended(),
+    });
+    presence.start();
+    return presence;
+  });
+  ensureTray();
+  broadcastUnattended();
+}
+
+function stopPresences() {
+  for (const p of presences) p.stop();
+  presences = [];
+}
+
+function deactivateUnattended() {
+  stopPresences();
+  for (const wcId of unattendedSessions.keys()) endUnattendedSession(wcId, 'disabled', true);
+  tray?.destroy();
+  tray = null;
+  maybeCloseLan();
+  broadcastUnattended();
+}
+
+function dotImage(size, [r, g, b]) {
+  const buf = Buffer.alloc(size * size * 4);
+  const c = (size - 1) / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const d = Math.hypot(x - c, y - c);
+      const i = (y * size + x) * 4;
+      const inner = d <= c * 0.35;
+      buf[i] = inner ? 0xff : b;
+      buf[i + 1] = inner ? 0xff : g;
+      buf[i + 2] = inner ? 0xff : r;
+      buf[i + 3] = d <= c ? 0xff : 0;
+    }
+  }
+  return nativeImage.createFromBitmap(buf, { width: size, height: size });
+}
+
+function showMainWindow() {
+  const [win] = appWindows();
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    return win;
+  }
+  return createWindow();
+}
+
+// Indicador permanente (não oculto): ícone na área de notificação enquanto o recurso estiver ativo.
+function ensureTray() {
+  const id = formatSessionId(unattended.deviceId ?? '');
+  const menu = Menu.buildFromTemplate([
+    { label: `Acesso sem supervisão ATIVADO — ID ${id}`, enabled: false },
+    { type: 'separator' },
+    { label: 'Abrir o Ponte', click: () => showMainWindow() },
+    { label: 'Ajustes do acesso sem supervisão', click: () => { showMainWindow(); navigate('ajustes'); } },
+    { type: 'separator' },
+    {
+      label: 'Desativar acesso sem supervisão…',
+      click: async () => {
+        const { response } = await dialog.showMessageBox({
+          type: 'warning', buttons: ['Desativar', 'Cancelar'], defaultId: 0, cancelId: 1,
+          message: 'Desativar o acesso sem supervisão?',
+          detail: 'Ninguém mais conseguirá entrar neste computador sem aprovação. Sessões em andamento serão encerradas.',
+        });
+        if (response === 0) {
+          await unattended.disable();
+          deactivateUnattended();
+        }
+      },
+    },
+  ]);
+  try {
+    tray ??= new Tray(dotImage(32, [0x0a, 0x74, 0x69]));
+    tray.setToolTip(`Ponte — acesso sem supervisão ativado (ID ${id})`);
+    tray.setContextMenu(menu);
+    tray.removeAllListeners('click');
+    tray.on('click', () => showMainWindow());
+  } catch {
+    tray = null; // sem área de notificação neste sistema: o indicador fica no app
+  }
+}
+
+function notify(title, body) {
+  try {
+    if (Notification.isSupported()) new Notification({ title, body }).show();
+  } catch {
+    // notificações indisponíveis: o evento continua no log e no aviso do app
+  }
+}
+
+async function unattendedStatus() {
+  return {
+    ...unattended.summary,
+    presences: presences.map((p) => ({ internet: p.url !== loopbackUrl, status: p.status })),
+    lan: Boolean(lan),
+    remoteConfigured: settings.mode === 'remote',
+    activeSessions: [...unattendedSessions.values()].filter((s) => s.authenticated).map(({ techName, techId }) => ({ techName, techId })),
+    autostart: autostartStatus(),
+    log: (await unattended.readLog(30)).map(({ ts, event, techName, reason }) => ({ ts, event, techName, reason })),
+  };
+}
+
+function broadcastUnattended() {
+  unattendedStatus().then((status) => broadcast('ponte:unattended-changed', status)).catch(() => {});
+}
+
+function autostartStatus() {
+  if (process.platform === 'linux') return { supported: false, enabled: false };
+  return { supported: true, enabled: app.getLoginItemSettings({ args: ['--hidden'] }).openAtLogin };
+}
+
+function onUnattendedIncoming(info) {
+  if (!unattended?.enabled) return;
+  const win = createWindow();
+  const wcId = win.webContents.id;
+  unattendedSessions.set(wcId, { sessionId: info.sessionId, techName: String(info.techName ?? '').slice(0, 64), techId: null, authenticated: false });
+  win.webContents.once('did-finish-load', () => {
+    win.webContents.send('ponte:unattended-incoming', {
+      sessionId: info.sessionId, hostToken: info.hostToken, techName: info.techName, requested: info.requested, url: info.url,
+    });
+  });
+  unattended.log('session_requested', { techName: info.techName, via: info.url === loopbackUrl ? 'rede local' : 'internet' });
+}
+
+function endUnattendedSession(wcId, reason, tellWindow = false) {
+  const s = unattendedSessions.get(wcId);
+  if (!s) return;
+  unattendedSessions.delete(wcId);
+  if (tellWindow) webContents.fromId(wcId)?.send('ponte:unattended-revoked', { reason });
+  if (s.authenticated) {
+    notify('Acesso sem supervisão encerrado', `A sessão de ${s.techName || 'alguém'} terminou.`);
+    unattended.log('session_ended', { techName: s.techName, techId: s.techId, reason });
+  }
+  broadcastUnattended();
+}
+
+async function getTechId() {
+  const file = join(app.getPath('userData'), 'tech-id.txt');
+  try {
+    const id = (await readFile(file, 'utf8')).trim();
+    if (/^[A-Za-z0-9_-]{16,64}$/.test(id)) return id;
+  } catch {
+    // ainda não existe
+  }
+  const id = randomBytes(18).toString('base64url');
+  await writeFile(file, id, { mode: 0o600 });
+  return id;
+}
+
+function registerUnattendedIpc() {
+  const deny = { ok: false, error: 'denied' };
+  const busy = { ok: false, error: 'session_active' };
+  const sessionOf = (event) => (fromApp(event) ? unattendedSessions.get(event.sender.id) : null);
+
+  // ----- Proprietário (no próprio computador) -----
+  ipcMain.handle('ponte:unattended-status', async (event) => (fromApp(event) ? unattendedStatus() : null));
+  ipcMain.handle('ponte:unattended-enable', async (event, input) => {
+    if (!fromApp(event)) return deny;
+    if (input?.confirm !== true) return { ok: false, error: 'not_confirmed' };
+    // Ninguém consegue ativar controlando o computador remotamente: só sem sessões em andamento.
+    if (hasActiveSessions()) return busy;
+    const result = await unattended.enable({
+      password: String(input.password ?? ''), deviceName: String(input.deviceName ?? ''), permissions: input.permissions,
+    });
+    if (!result.ok) return result;
+    await activateUnattended();
+    return { ok: true, status: await unattendedStatus() };
+  });
+  ipcMain.handle('ponte:unattended-change-password', async (event, password) => {
+    if (!fromApp(event)) return deny;
+    if (hasActiveSessions()) return busy;
+    const result = await unattended.changePassword(String(password ?? ''));
+    if (result.ok) broadcastUnattended();
+    return result.ok ? { ok: true, status: await unattendedStatus() } : result;
+  });
+  ipcMain.handle('ponte:unattended-update', async (event, input) => {
+    if (!fromApp(event)) return deny;
+    // Restringir (bloquear novos dispositivos) vale sempre; ampliar acesso só sem sessões.
+    const restrictOnly = input?.allowNewDevices === false && input.permissions === undefined;
+    if (!restrictOnly && hasActiveSessions()) return busy;
+    const result = await unattended.update({
+      allowNewDevices: typeof input?.allowNewDevices === 'boolean' ? input.allowNewDevices : undefined,
+      permissions: input?.permissions,
+    });
+    broadcastUnattended();
+    return result.ok ? { ok: true, status: await unattendedStatus() } : result;
+  });
+  ipcMain.handle('ponte:unattended-revoke', async (event, techId) => {
+    if (!fromApp(event)) return deny;
+    const result = await unattended.revokeDevice(String(techId ?? ''));
+    // Revogar encerra na hora a sessão desse dispositivo, se houver.
+    for (const [wcId, s] of unattendedSessions) if (s.techId === techId) endUnattendedSession(wcId, 'revoked', true);
+    broadcastUnattended();
+    return result.ok ? { ok: true, status: await unattendedStatus() } : result;
+  });
+  ipcMain.handle('ponte:unattended-disable', async (event) => {
+    if (!fromApp(event)) return deny;
+    await unattended.disable();
+    deactivateUnattended();
+    return { ok: true, status: await unattendedStatus() };
+  });
+  ipcMain.handle('ponte:unattended-unlock', async (event) => {
+    if (!fromApp(event)) return deny;
+    if (hasActiveSessions()) return busy;
+    const result = await unattended.unlock();
+    return result.ok ? { ok: true, status: await unattendedStatus() } : result;
+  });
+  ipcMain.handle('ponte:autostart', (event, enabled) => {
+    if (!fromApp(event) || process.platform === 'linux') return autostartStatus();
+    app.setLoginItemSettings({ openAtLogin: enabled === true, args: ['--hidden'] });
+    return autostartStatus();
+  });
+
+  // ----- Janela que atende uma sessão sem supervisão -----
+  ipcMain.handle('ponte:unattended-challenge', (event) => {
+    const s = sessionOf(event);
+    if (!s || s.authenticated) return null;
+    return unattended.createChallenge();
+  });
+  ipcMain.handle('ponte:unattended-verify', async (event, input) => {
+    const s = sessionOf(event);
+    if (!s || s.authenticated) return { ok: false, error: 'denied', retryAfter: 0 };
+    const result = await unattended.verify({
+      challengeId: String(input?.challengeId ?? ''),
+      mac: String(input?.mac ?? ''),
+      techId: String(input?.techId ?? '').slice(0, 64),
+      techName: s.techName,
+      binding: String(input?.binding ?? ''),
+    });
+    if (result.ok) {
+      s.authenticated = true;
+      s.techId = String(input.techId);
+      notify('Acesso sem supervisão iniciado', `${s.techName || 'Alguém'} entrou neste computador com a senha de acesso.`);
+      broadcastUnattended();
+    }
+    return result;
+  });
+  ipcMain.handle('ponte:unattended-capture', async (event) => {
+    const s = sessionOf(event);
+    if (!s?.authenticated) return null;
+    const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
+    const primary = String(screen.getPrimaryDisplay().id);
+    const source = sources.find((src) => String(src.display_id) === primary) ?? sources[0];
+    if (!source) return null;
+    setCaptureTarget(event.sender, targetForSource(source));
+    return { sourceId: source.id };
+  });
+  ipcMain.handle('ponte:unattended-ended', (event, reason) => {
+    if (fromApp(event)) endUnattendedSession(event.sender.id, String(reason ?? 'ended'));
+  });
+
+  // ----- Quem conecta a um computador sem supervisão -----
+  ipcMain.handle('ponte:unattended-locate', async (event, rawId, rawAddress) => {
+    if (!fromApp(event)) return deny;
+    const deviceId = normalizeSessionId(rawId);
+    const address = typeof rawAddress === 'string' ? rawAddress.trim() : '';
+    if (!SESSION_ID_PATTERN.test(deviceId)) return { ok: false, error: 'invalid_device' };
+    if (address && !isValidAddress(address)) return { ok: false, error: 'invalid_address' };
+    // Este próprio computador (testes com duas janelas).
+    if (!address && unattended.enabled && unattended.deviceId === deviceId) return { ok: true, url: loopbackUrl, via: 'local' };
+    const found = await discoverDevice({ deviceId, address: address || undefined, timeoutMs: address ? 2500 : 1500 });
+    if (found) {
+      const accepted = pinned.get(found.host) ?? new Set();
+      accepted.add(found.fingerprint);
+      pinned.set(found.host, accepted);
+      return { ok: true, url: `wss://${found.host}:${found.port}/ws`, via: 'lan' };
+    }
+    if (settings.mode === 'remote') return { ok: true, url: signalingUrl, via: 'internet' };
+    return { ok: false, error: 'not_found' };
+  });
+  ipcMain.handle('ponte:unattended-proof', async (event, challenge, binding, password) => {
+    if (!fromApp(event)) return null;
+    const checked = validateDataMessage({ ...challenge, type: 'auth-challenge' });
+    if (!checked.ok || typeof binding !== 'string' || binding.length > 2000) return null;
+    if (typeof password !== 'string' || !password || password.length > 128) return null;
+    const techId = await getTechId();
+    // A senha é usada só aqui, para derivar a prova; não é guardada nem registrada.
+    const mac = await computeProof(password, checked.value, { techId, binding });
+    return { mac, techId };
+  });
+}
+
 /* ================= Testes automatizados ================= */
 
 function exposeTestHooks() {
@@ -633,6 +1005,11 @@ function exposeTestHooks() {
     minimizeOverlay: () => overlay?.webContents.executeJavaScript("document.getElementById('minimize').click()"),
     revokeViaShortcut: () => revokeControl('shortcut'),
     shortcutRegistered: () => globalShortcut.isRegistered(REVOKE_ACCELERATOR),
+    unattendedSummary: () => unattended.summary,
+    unattendedSessions: () => [...unattendedSessions.values()],
+    presenceStatus: () => presences.map((p) => p.status),
+    readUnattendedFile: () => readFile(join(app.getPath('userData'), 'unattended.json'), 'utf8'),
+    readSecurityLog: () => readFile(join(app.getPath('userData'), 'security-log.jsonl'), 'utf8').catch(() => ''),
   };
 }
 
@@ -713,10 +1090,13 @@ function buildMenu() {
 }
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  // Com o acesso sem supervisão ativado, o app continua no ícone da área de notificação.
+  if (process.platform !== 'darwin' && !unattended?.enabled) app.quit();
 });
 
 app.on('will-quit', () => {
+  stopPresences();
+  tray?.destroy();
   stopControl();
   inputWorker?.kill();
   globalShortcut.unregisterAll();

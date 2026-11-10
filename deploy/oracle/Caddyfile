@@ -1,0 +1,9 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$PONTE_DOMAIN} {
+	encode zstd gzip
+	# Cabeçalhos de segurança já são enviados pelo servidor do Ponte.
+	reverse_proxy ponte:8080
+}

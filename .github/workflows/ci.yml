@@ -29,6 +29,8 @@ jobs:
         run: sudo apt-get install -y libxtst6
       - name: Teste do app de computador (Electron + Xvfb)
         run: xvfb-run -a -s "-screen 0 1280x800x24" npm run test:desktop
+      - name: Acesso sem supervisão pela internet (duas instâncias do app + servidor externo)
+        run: xvfb-run -a -s "-screen 0 1280x800x24" npm run test:internet
       - name: Capturas de tela dos testes
         if: always()
         uses: actions/upload-artifact@v4
