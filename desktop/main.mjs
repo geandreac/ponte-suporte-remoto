@@ -536,7 +536,10 @@ function initUpdater() {
   updater.start();
 }
 
-const hasActiveSessions = () => Boolean(control.owner) || (embedded?.store.size ?? 0) > 0 || flowWindows.size > 0
+// "Há alguém usando este computador agora?": janelas com convite/sessão, controle ativo ou acesso sem
+// supervisão autenticado. Sessões órfãs do servidor embutido (ninguém conectado, aguardando o prazo
+// de reconexão) não contam: elas não dão acesso a nada.
+const hasActiveSessions = () => Boolean(control.owner) || flowWindows.size > 0
   || [...unattendedSessions.values()].some((s) => s.authenticated);
 
 /* ================= IPC ================= */
@@ -1006,6 +1009,7 @@ function exposeTestHooks() {
     revokeViaShortcut: () => revokeControl('shortcut'),
     shortcutRegistered: () => globalShortcut.isRegistered(REVOKE_ACCELERATOR),
     unattendedSummary: () => unattended.summary,
+    hasActiveSessions: () => hasActiveSessions(),
     unattendedSessions: () => [...unattendedSessions.values()],
     presenceStatus: () => presences.map((p) => p.status),
     readUnattendedFile: () => readFile(join(app.getPath('userData'), 'unattended.json'), 'utf8'),

@@ -1,5 +1,11 @@
 # Histórico de versões
 
+## 0.3.1
+- Correção: depois de uma tentativa sem supervisão recusada, o computador podia ficar até 30 s
+  impedindo mudanças nos Ajustes (sessão órfã contada como "em andamento"). Quem conecta agora
+  avisa o servidor ao ser recusado, e só sessões realmente ativas bloqueiam os Ajustes.
+- O computador mostra o motivo real da recusa ("senha incorreta", "dispositivo não autorizado").
+
 ## 0.3.0
 - **Acessar computador sem supervisão** (app de computador): senha fixa por computador (scrypt com
   salt, cofre do sistema), ativação explícita e só sem sessões em andamento, desafio-resposta sem

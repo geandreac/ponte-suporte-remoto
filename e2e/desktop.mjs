@@ -429,6 +429,9 @@ try {
   });
 
   await step('sem supervisão: trocar a senha e desativar removem o acesso e o indicador', async () => {
+    // Ampliar o acesso só é aceito sem sessões em andamento: espera a tentativa anterior acabar.
+    for (let i = 0; i < 50 && await hook('hasActiveSessions'); i++) await host.waitForTimeout(100);
+    assert.equal(await hook('hasActiveSessions'), false);
     await host.check('#ua-allow-new');
     await host.click('#btn-ua-password');
     await host.fill('#ua-dlg-password', 'Nova-Senha#Forte2026');

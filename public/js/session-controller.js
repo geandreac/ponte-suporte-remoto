@@ -261,6 +261,7 @@ export class HostController extends SessionController {
   authenticated = false;
   #challenge = null;
   #authBusy = false;
+  #authFailure = null; // motivo da recusa: prevalece sobre o encerramento que vier depois
   #authTimer = null;
   #restartTimer = null;
   #controlSync = Promise.resolve();
@@ -506,7 +507,9 @@ export class HostController extends SessionController {
     });
     if (!result.ok) {
       this._log('Tentativa de acesso sem supervisão recusada.', 'error');
-      setTimeout(() => this.end(`auth_${result.error}`), 300);
+      this.#authFailure = `auth_${result.error}`;
+      // Pequena espera para o resultado chegar ao outro lado antes de fechar a conexão.
+      setTimeout(() => this.end(this.#authFailure), 300);
       return;
     }
     clearTimeout(this.#authTimer);
@@ -617,6 +620,10 @@ export class HostController extends SessionController {
       return;
     }
     if (msg.peerConnected) this._onPeerBack();
+  }
+
+  _teardown(reason) {
+    super._teardown(this.#authFailure ?? reason);
   }
 
   _cleanupMedia() {
@@ -762,7 +769,8 @@ export class ViewerController extends SessionController {
         this._emit('unattended-auth', { ok: true });
       } else {
         this.authError = msg;
-        this._teardown(`auth_${msg.error || 'failed'}`);
+        // end() também avisa o servidor, que limpa a sessão na hora.
+        this.end(`auth_${msg.error || 'failed'}`);
       }
       return;
     }
