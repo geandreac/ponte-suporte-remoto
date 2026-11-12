@@ -193,3 +193,13 @@ build/    ícone e recursos do instalador     .github/workflows/  CI e geração
 ## Licença
 
 MIT — veja [LICENSE](LICENSE).
+
+## Como clonar
+
+```bash
+git clone https://github.com/geandreac/ponte-suporte-remoto.git
+cd ponte-suporte-remoto
+npm install
+npm start        # servidor + web em http://localhost:3000
+npm run desktop  # abrir como aplicativo de desktop (Electron)
+```
